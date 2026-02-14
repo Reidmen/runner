@@ -747,6 +747,7 @@ resolve_issues() {
 _lookup_issue_num() {
     local title="$1"
     local i=0
+    [[ ${#_ISSUE_TITLES[@]} -eq 0 ]] && { echo ""; return; }
     for t in "${_ISSUE_TITLES[@]}"; do
         if [[ "$t" == "$title" ]]; then
             echo "${_ISSUE_NUM_LIST[$i]}"
@@ -760,6 +761,7 @@ _lookup_issue_num() {
 _lookup_issue_json() {
     local title="$1"
     local i=0
+    [[ ${#_ISSUE_TITLES[@]} -eq 0 ]] && { echo ""; return; }
     for t in "${_ISSUE_TITLES[@]}"; do
         if [[ "$t" == "$title" ]]; then
             echo "${_ISSUE_JSONS[$i]}"
