@@ -127,8 +127,8 @@ _progress() {
     local filled=$(( pct / 5 ))
     local empty=$(( 20 - filled ))
     local bar=""
-    bar+="$(printf '%0.s█' $(seq 1 "$filled") 2>/dev/null || true)"
-    bar+="$(printf '%0.s░' $(seq 1 "$empty") 2>/dev/null || true)"
+    [[ $filled -gt 0 ]] && bar+="$(printf '%0.s█' $(seq 1 "$filled"))"
+    [[ $empty -gt 0 ]]  && bar+="$(printf '%0.s░' $(seq 1 "$empty"))"
     printf '  %s[%s/%s]%s %s %s%s%s %s%d%%%s\n' \
         "$DIM" "$current" "$total" "$RESET" \
         "$bar" "$BOLD" "$label" "$RESET" \
@@ -543,9 +543,11 @@ create_worktree() {
 
     # Safety: add worktree parent to git excludes if nested inside repo
     local exclude_file="${GIT_ROOT}/.git/info/exclude"
-    local rel_parent
-    rel_parent="$(python3 -c "import os.path; print(os.path.relpath('$WORKTREE_PARENT', '$GIT_ROOT'))" 2>/dev/null || echo "")"
-    if [[ -n "$rel_parent" && ! "$rel_parent" =~ ^\.\. ]] && ! grep -qF "$rel_parent" "$exclude_file" 2>/dev/null; then
+    local rel_parent=""
+    if [[ "$WORKTREE_PARENT" == "$GIT_ROOT"/* ]]; then
+        rel_parent="${WORKTREE_PARENT#"$GIT_ROOT/"}"
+    fi
+    if [[ -n "$rel_parent" ]] && ! grep -qF "$rel_parent" "$exclude_file" 2>/dev/null; then
         echo "$rel_parent" >> "$exclude_file"
         info "Added ${rel_parent} to .git/info/exclude"
     fi
@@ -1336,7 +1338,7 @@ drop_into_shell() {
 
     # Create rcfile for custom shell
     local rcfile
-    rcfile="$(mktemp /tmp/runner-shell-XXXXXX.sh)"
+    rcfile="$(mktemp /tmp/runner-shell-XXXXXX)"
 
     cat > "$rcfile" <<SHELL_EOF
 # Source user's profile
