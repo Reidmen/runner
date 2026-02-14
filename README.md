@@ -34,12 +34,12 @@ Orchestrator
 Worker (per feature)
 ├── Branch: feature/<slug>
 ├── Copies .env files, offsets ports
-├── Claude implements with 4-phase workflow:
+├── Claude implements with 5-phase workflow:
 │   1. Architecture & Planning → .feature-context/PLAN.md
 │   2. Implementation → atomic commits
 │   3. Testing → .feature-context/TEST-RESULTS.md
 │   4. Integration → .feature-context/INTEGRATION.md
-├── Writes .feature-context/SUMMARY.md
+│   5. Summary → .feature-context/SUMMARY.md
 └── Drops into interactive shell
 ```
 
@@ -91,11 +91,51 @@ After Claude finishes, you drop into a shell with these commands:
 
 ## Testing
 
+67 tests across 15 groups, pure bash (no external test framework required).
+
 ```bash
-./test_runner.sh            # Run all 67 tests
-./test_runner.sh --verbose  # With detailed output
-./test_runner.sh --filter "port"  # Filter by name
+./test_runner.sh              # Run all 67 tests
+./test_runner.sh --verbose    # With detailed output
+./test_runner.sh --filter X   # Filter tests by name pattern
 ```
+
+### Test Coverage
+
+| Group | Tests | What's Covered |
+|-------|-------|----------------|
+| Slugification | 12 | Basic, special chars, truncation, unicode, uniqueness validation |
+| Argument Parsing | 6 | Help, version, unknown flags, no-features error, from-file |
+| Issue Slugs | 2 | Format, truncation |
+| Git Worktrees | 7 | Resolve root, base branch, create, reuse existing |
+| Lockfiles | 4 | Acquire, stale removal, active rejection, release |
+| .env Copying | 3 | Basic, disabled, nested directories |
+| Port Rewriting | 8 | Offsets, index 0 unchanged, custom offset, disabled, logging |
+| Manifest | 6 | Init, idempotent, add, multiple, status updates |
+| Terminal Detection | 2 | Explicit modes, env detection |
+| Prompt Building | 4 | Basic, with/without issue, team config JSON |
+| Issue Context | 1 | Full ISSUE.md generation |
+| Safety Patterns | 6 | Strict mode, executable, printf, atomic writes, size guard |
+| Child Commands | 2 | Basic, all options |
+| End-to-End | 4 | Worktree lifecycle, cleanup, manifest lifecycle, env+port |
+
+### Static Analysis
+
+Passes `shellcheck -S warning` (zero warnings). Run:
+
+```bash
+shellcheck -s bash runner.sh
+```
+
+## Safety
+
+- `set -euo pipefail` -- strict error handling
+- Lockfiles with PID + stale detection -- no duplicate sessions
+- Slug collision prevention -- pre-validated before spawning
+- EXIT trap -- always cleans lockfiles; cleans worktrees on failure
+- `printf '%q'` -- injection-safe command construction
+- Atomic manifest writes -- `jq` + tmp + `mv`
+- Env file size guard -- 5MB per file
+- Base branch validation before worktree creation
 
 ## License
 

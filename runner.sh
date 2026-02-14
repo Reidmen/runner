@@ -18,7 +18,9 @@ set -euo pipefail
 # ─────────────────────────────────────────────────────────────────────────────
 
 readonly VERSION="1.0.0"
+# shellcheck disable=SC2155
 readonly SCRIPT_NAME="$(basename "$0")"
+# shellcheck disable=SC2155
 readonly SCRIPT_PATH="$(cd "$(dirname "$0")" && pwd)/${SCRIPT_NAME}"
 
 _use_color() {
@@ -130,19 +132,15 @@ EOF
 }
 
 parse_args() {
-    local collecting_features=false
-
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --features)
                 shift
-                collecting_features=true
                 # Collect all following args until next flag
                 while [[ $# -gt 0 && ! "$1" =~ ^-- ]]; do
                     FEATURES+=("$1")
                     shift
                 done
-                collecting_features=false
                 ;;
             --from-file)
                 shift
@@ -276,16 +274,19 @@ slugify() {
 
     # Lowercase
     slug="$(echo "$input" | tr '[:upper:]' '[:lower:]')"
-    # Replace non-alphanumeric with hyphens
+    # Replace non-alphanumeric with hyphens (requires sed for char class)
+    # shellcheck disable=SC2001
     slug="$(echo "$slug" | sed 's/[^a-z0-9]/-/g')"
-    # Collapse multiple hyphens
+    # Collapse multiple hyphens (requires sed for quantifier)
+    # shellcheck disable=SC2001
     slug="$(echo "$slug" | sed 's/-\{2,\}/-/g')"
     # Trim leading/trailing hyphens
-    slug="$(echo "$slug" | sed 's/^-//;s/-$//')"
+    slug="${slug#-}"
+    slug="${slug%-}"
     # Truncate to 50 chars
     slug="${slug:0:50}"
     # Trim trailing hyphen after truncation
-    slug="$(echo "$slug" | sed 's/-$//')"
+    slug="${slug%-}"
 
     echo "$slug"
 }
@@ -374,7 +375,7 @@ issue_slug() {
     title_slug="$(slugify "$title")"
     # Truncate title slug to leave room for issue- prefix
     title_slug="${title_slug:0:38}"
-    title_slug="$(echo "$title_slug" | sed 's/-$//')"
+    title_slug="${title_slug%-}"
     echo "issue-${issue_num}-${title_slug}"
 }
 
@@ -705,7 +706,7 @@ manifest_add_feature() {
     local issue_json_val="null"
     [[ "$issue_num" != "null" && -n "$issue_num" ]] && issue_json_val="$issue_num"
 
-    jq --arg slug "$slug" \
+    if jq --arg slug "$slug" \
        --arg desc "$desc" \
        --arg branch "$branch" \
        --arg worktree "$worktree" \
@@ -729,9 +730,12 @@ manifest_add_feature() {
          exit_code: null,
          issue_number: $issue_num,
          source: $source
-       }]' "$MANIFEST_FILE" > "$tmpfile" \
-       && mv "$tmpfile" "$MANIFEST_FILE" \
-       || { rm -f "$tmpfile"; warn "Failed to update manifest"; }
+       }]' "$MANIFEST_FILE" > "$tmpfile"; then
+        mv "$tmpfile" "$MANIFEST_FILE"
+    else
+        rm -f "$tmpfile"
+        warn "Failed to update manifest"
+    fi
 }
 
 manifest_update_status() {
@@ -742,7 +746,7 @@ manifest_update_status() {
     local tmpfile
     tmpfile="$(mktemp "${MANIFEST_FILE}.XXXXXX")"
 
-    jq --arg slug "$slug" \
+    if jq --arg slug "$slug" \
        --arg status "$status" \
        --argjson exit_code "$exit_code" \
        --arg completed "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
@@ -750,9 +754,12 @@ manifest_update_status() {
          status: $status,
          completed: $completed,
          exit_code: $exit_code
-       }' "$MANIFEST_FILE" > "$tmpfile" \
-       && mv "$tmpfile" "$MANIFEST_FILE" \
-       || { rm -f "$tmpfile"; warn "Failed to update manifest status"; }
+       }' "$MANIFEST_FILE" > "$tmpfile"; then
+        mv "$tmpfile" "$MANIFEST_FILE"
+    else
+        rm -f "$tmpfile"
+        warn "Failed to update manifest status"
+    fi
 }
 
 manifest_show() {
@@ -858,7 +865,7 @@ build_child_cmd() {
 
 spawn_iterm() {
     local slugs=("${!1}")
-    local descs=("${!2}")
+    # $2 (descs) available but unused in iterm mode
     local cmds=("${!3}")
 
     info "Spawning ${#cmds[@]} iTerm2 tab(s)"
@@ -902,10 +909,11 @@ APPLESCRIPT
 
 spawn_tmux() {
     local slugs=("${!1}")
-    local descs=("${!2}")
+    # $2 (descs) available but unused in tmux mode
     local cmds=("${!3}")
 
-    local session_name="features-$(date +%H%M%S)"
+    local session_name
+    session_name="features-$(date +%H%M%S)"
     info "Creating tmux session: ${session_name}"
 
     local i=0
@@ -934,7 +942,7 @@ spawn_tmux() {
 
 spawn_background() {
     local slugs=("${!1}")
-    local descs=("${!2}")
+    # $2 (descs) available but unused in background mode
     local cmds=("${!3}")
 
     local log_dir="${WORKTREE_PARENT}/logs"

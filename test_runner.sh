@@ -87,11 +87,13 @@ _test_teardown() {
 # This creates a subshell that sources runner.sh's functions without running main()
 _source_runner_functions() {
     # We extract functions by sourcing with a modified main
-    # Also remove 'readonly' declarations so tests can override values
-    cat "$TEST_SCRIPT" \
-        | sed 's/^main "\$@"$/# main "$@"/' \
-        | sed 's/^readonly //' \
-        > "${TEST_TMPDIR}/runner_lib.sh"
+    # - Comment out main call
+    # - Replace readonly X="$(cmd)" with X="safe_val" to avoid readonly + sourcing issues
+    sed -e 's/^main "\$@"$/# main "$@"/' \
+        -e 's/^readonly SCRIPT_NAME=.*/SCRIPT_NAME="runner.sh"/' \
+        -e 's/^readonly SCRIPT_PATH=.*/SCRIPT_PATH="\/dev\/null"/' \
+        -e 's/^readonly ENV_MAX_SIZE=.*/ENV_MAX_SIZE=$((5 * 1024 * 1024))/' \
+        "$TEST_SCRIPT" > "${TEST_TMPDIR}/runner_lib.sh"
     # Pre-set required variables to avoid unbound variable errors
     cat > "${TEST_TMPDIR}/source_helper.sh" <<'HELPER'
 #!/usr/bin/env bash
