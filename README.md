@@ -2,24 +2,56 @@
 
 Parallel feature runner that spawns isolated Claude Code sessions per feature using git worktrees.
 
-## Quick Start
+## Setup
+
+`runner.sh` can live anywhere. It does **not** need to be inside your project.
 
 ```bash
+# Option A: Clone and use directly
+git clone git@github.com:Reidmen/runner.git ~/runner
+~/runner/runner.sh --features "Add auth"
+
+# Option B: Symlink to your PATH
+ln -s ~/runner/runner.sh /usr/local/bin/runner
+
+# Option C: Copy the script anywhere
+cp runner.sh ~/bin/runner.sh
+```
+
+## Quick Start
+
+**Run from inside any git repository:**
+
+```bash
+cd ~/projects/my-app        # must be inside a git repo
+
 # Single feature
-./runner.sh --features "Add user authentication"
+runner.sh --features "Add user authentication"
 
 # Multiple parallel features
-./runner.sh --features "Add auth" "Build REST API" "Add search"
+runner.sh --features "Add auth" "Build REST API" "Add search"
 
 # From GitHub issues
-./runner.sh --issue 42 --issue 78
+runner.sh --issue 42 --issue 78
 
 # From a file
-./runner.sh --from-file features.txt
+runner.sh --from-file features.txt
 
 # Mixed: issues + manual features
-./runner.sh --issue 42 --features "Add rate limiting"
+runner.sh --issue 42 --features "Add rate limiting"
 ```
+
+Your repo stays untouched. All work happens in `~/.feature_runner/` (configurable with `--dir`):
+
+```
+~/projects/my-app/                  ← your repo (nothing changes here)
+~/.feature_runner/                  ← worktrees created here
+    runner-manifest.json
+    feature-add-auth/               ← full checkout on branch feature/add-auth
+    feature-build-api/              ← full checkout on branch feature/build-api
+```
+
+When done, merge from your repo: `git merge feature/add-auth`
 
 ## How It Works
 
