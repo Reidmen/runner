@@ -23,24 +23,69 @@ Parallel feature runner that spawns isolated Claude Code sessions per feature us
 
 ## How It Works
 
-```
-Orchestrator
-├── Parses features (CLI, file, or GitHub issues)
-├── Creates isolated git worktrees per feature
-├── Rewrites .env ports to avoid conflicts
-├── Spawns parallel Claude sessions (iTerm2 tabs / tmux windows / background)
-└── Tracks everything in runner-manifest.json
+`runner.sh` is a **self-spawning script** -- the same file acts as both **orchestrator** and **worker**. An internal `--_single` flag determines the role.
 
-Worker (per feature)
-├── Branch: feature/<slug>
-├── Copies .env files, offsets ports
-├── Claude implements with 5-phase workflow:
-│   1. Architecture & Planning → .feature-context/PLAN.md
-│   2. Implementation → atomic commits
-│   3. Testing → .feature-context/TEST-RESULTS.md
-│   4. Integration → .feature-context/INTEGRATION.md
-│   5. Summary → .feature-context/SUMMARY.md
-└── Drops into interactive shell
+```
+./runner.sh --features "Add auth" "Build API" "Add search"
+
+runner.sh (orchestrator)
+  ├── spawns: runner.sh --_single --_feature-slug add-auth ...     → tab 1
+  ├── spawns: runner.sh --_single --_feature-slug build-api ...    → tab 2
+  └── spawns: runner.sh --_single --_feature-slug add-search ...   → tab 3
+```
+
+### Orchestrator
+
+1. **Collect features** from `--features`, `--from-file`, or `--issue` (all three can be mixed)
+2. **Slugify** each description into a branch-safe name (`"Add OAuth2 auth"` -> `add-oauth2-auth`)
+3. **Validate** all slugs are unique
+4. **Initialize manifest** at `~/.feature_runner/runner-manifest.json`
+5. **Build child commands** with `printf '%q'` for safe escaping
+6. **Detect terminal and spawn**:
+   - **iTerm2** -- AppleScript creates named tabs
+   - **tmux** -- creates session with one window per feature
+   - **background** -- log files + live dashboard
+
+### Worker (one per feature)
+
+1. **Acquire lockfile** (`~/.feature_runner/.lock-feature-<slug>`) with PID-based stale detection
+2. **Create git worktree** -- `git worktree add -b feature/<slug>` for full isolation
+3. **Copy `.env` files** from the original repo (3-pass scan, skips tracked/large files)
+4. **Rewrite ports** -- offsets `PORT=3000` by `index * offset` to prevent collisions
+5. **Write issue context** (if `--issue`) -- full body, labels, comments to `.feature-context/ISSUE.md`
+6. **Launch Claude Code** with a prompt defining 5 phases:
+
+   | Phase | Artifact |
+   |-------|----------|
+   | Architecture & Planning | `.feature-context/PLAN.md` |
+   | Implementation | Atomic git commits |
+   | Testing | `.feature-context/TEST-RESULTS.md` |
+   | Integration verification | `.feature-context/INTEGRATION.md` |
+   | Summary | `.feature-context/SUMMARY.md` |
+
+   Optionally uses a 4-agent team (architect, implementer, tester, integrator) via `--agents`.
+
+7. **Update manifest** with status (`completed`/`failed`), exit code, timestamp
+8. **Drop into interactive shell** with convenience commands (`status`, `diff`, `merge-ready`, etc.)
+
+### File Layout
+
+```
+~/.feature_runner/
+├── runner-manifest.json                ← tracks all features
+├── logs/                               ← background mode only
+│   └── add-auth.log
+├── feature-add-auth/                   ← git worktree (isolated checkout)
+│   ├── .env                            ← copied + port-rewritten
+│   └── .feature-context/
+│       ├── PLAN.md
+│       ├── SUMMARY.md
+│       ├── TEST-RESULTS.md
+│       ├── INTEGRATION.md
+│       ├── ISSUE.md                    ← only in --issue mode
+│       └── env-ports-modified.log
+└── feature-build-api/                  ← another worktree
+    └── ...
 ```
 
 ## Options
