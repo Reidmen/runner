@@ -1658,15 +1658,14 @@ run_claude() (
     # Non-interactive print mode when not in a TTY (background mode)
     [[ ! -t 1 ]] && claude_args+=(--print)
 
-    local -a claude_env=()
     local agent_mode="standalone"
 
     # Agents only activate for issue-based tasks
     if [[ "$use_agents" == true ]]; then
         if [[ "$NO_TEAMS" != true ]]; then
-            # Agent teams mode: experimental env var (like reviewer)
+            # Agent teams mode: export env var so claude inherits it
             agent_mode="agent teams"
-            claude_env+=("CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1")
+            export CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
         else
             # Subagent mode: explicit --agents JSON config
             agent_mode="subagents"
@@ -1684,11 +1683,7 @@ run_claude() (
     echo ""
 
     # Pass prompt as positional argument (not via stdin pipe)
-    if [[ ${#claude_env[@]} -gt 0 ]]; then
-        env "${claude_env[@]}" claude "${claude_args[@]}" "$prompt"
-    else
-        claude "${claude_args[@]}" "$prompt"
-    fi
+    claude "${claude_args[@]}" "$prompt"
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
