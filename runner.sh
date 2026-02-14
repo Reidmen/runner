@@ -36,28 +36,103 @@ if _use_color; then
     YELLOW=$'\033[0;33m'
     BLUE=$'\033[0;34m'
     CYAN=$'\033[0;36m'
+    WHITE=$'\033[1;37m'
     BOLD=$'\033[1m'
     DIM=$'\033[2m'
     RESET=$'\033[0m'
+    # Background colors for badges
+    BG_GREEN=$'\033[42m'
+    BG_RED=$'\033[41m'
+    BG_BLUE=$'\033[44m'
+    BG_YELLOW=$'\033[43m'
+    BG_BLACK=$'\033[40m'
 else
-    RED="" GREEN="" YELLOW="" BLUE="" CYAN="" BOLD="" DIM="" RESET=""
+    RED="" GREEN="" YELLOW="" BLUE="" CYAN="" WHITE=""
+    BOLD="" DIM="" RESET=""
+    BG_GREEN="" BG_RED="" BG_BLUE="" BG_YELLOW="" BG_BLACK=""
 fi
 
-info()  { printf '%s[info]%s  %s\n' "$BLUE"   "$RESET" "$*"; }
-ok()    { printf '%s[ ok ]%s  %s\n' "$GREEN"  "$RESET" "$*"; }
-warn()  { printf '%s[warn]%s  %s\n' "$YELLOW" "$RESET" "$*" >&2; }
-error() { printf '%s[ err]%s  %s\n' "$RED"    "$RESET" "$*" >&2; }
-fatal() { printf '%s[fatal]%s %s\n' "$RED"    "$RESET" "$*" >&2; exit 1; }
-step()  { printf '%s[step]%s  %s\n' "$CYAN"   "$RESET" "$*"; }
+# Logging with visual icons
+info()  { printf '  %s%s%s %s\n' "$BLUE"   "ℹ" "$RESET" "$*"; }
+ok()    { printf '  %s%s%s %s\n' "$GREEN"  "✓" "$RESET" "$*"; }
+warn()  { printf '  %s%s%s %s\n' "$YELLOW" "⚠" "$RESET" "$*" >&2; }
+error() { printf '  %s%s%s %s\n' "$RED"    "✗" "$RESET" "$*" >&2; }
+fatal() { printf '  %s%s %s%s\n' "$RED"    "✗" "$*" "$RESET" >&2; exit 1; }
+step()  { printf '  %s▸%s %s\n' "$CYAN"   "$RESET" "$*"; }
 
+# Section header — visually separates phases
+_section() {
+    local title="$1"
+    echo ""
+    printf '  %s%s─── %s %s───%s\n' "$BOLD" "$CYAN" "$title" "$CYAN" "$RESET"
+    echo ""
+}
+
+# Hero banner for main entrypoints
+_banner() {
+    local title="$1"
+    local subtitle="${2:-}"
+    local width=56
+    local border
+    border=$(printf '═%.0s' $(seq 1 "$width"))
+    echo ""
+    printf '  %s%s╔%s╗%s\n' "$BOLD" "$CYAN" "$border" "$RESET"
+    printf '  %s%s║%s  %s%-*s%s%s║%s\n' "$BOLD" "$CYAN" "$RESET" "$WHITE" $(( width - 2 )) "$title" "$BOLD" "$CYAN" "$RESET"
+    if [[ -n "$subtitle" ]]; then
+        printf '  %s%s║%s  %s%-*s%s%s║%s\n' "$BOLD" "$CYAN" "$RESET" "$DIM" $(( width - 2 )) "$subtitle" "$BOLD" "$CYAN" "$RESET"
+    fi
+    printf '  %s%s╚%s╝%s\n' "$BOLD" "$CYAN" "$border" "$RESET"
+    echo ""
+}
+
+# Compact box for results/summaries
 _boxln() {
     local msg="$1"
     local width=$(( ${#msg} + 4 ))
     local border
     border=$(printf '─%.0s' $(seq 1 "$width"))
-    printf '%s┌%s┐%s\n' "$BOLD" "$border" "$RESET"
-    printf '%s│  %s  │%s\n' "$BOLD" "$msg" "$RESET"
-    printf '%s└%s┘%s\n' "$BOLD" "$border" "$RESET"
+    printf '  %s┌%s┐%s\n' "$BOLD" "$border" "$RESET"
+    printf '  %s│  %s  │%s\n' "$BOLD" "$msg" "$RESET"
+    printf '  %s└%s┘%s\n' "$BOLD" "$border" "$RESET"
+}
+
+# Status badge for feature list
+_badge() {
+    local label="$1"
+    local bg="$2"
+    printf '%s%s %s %s' "$bg" "$WHITE" "$label" "$RESET"
+}
+
+# Elapsed time tracker
+_TIMER_START=""
+_timer_start() { _TIMER_START="$(date +%s)"; }
+_timer_elapsed() {
+    [[ -z "$_TIMER_START" ]] && echo "0s" && return
+    local now elapsed
+    now="$(date +%s)"
+    elapsed=$(( now - _TIMER_START ))
+    if [[ $elapsed -lt 60 ]]; then
+        echo "${elapsed}s"
+    else
+        echo "$((elapsed / 60))m $((elapsed % 60))s"
+    fi
+}
+
+# Progress indicator for multi-step operations
+_progress() {
+    local current="$1"
+    local total="$2"
+    local label="$3"
+    local pct=$(( current * 100 / total ))
+    local filled=$(( pct / 5 ))
+    local empty=$(( 20 - filled ))
+    local bar=""
+    bar+="$(printf '%0.s█' $(seq 1 "$filled") 2>/dev/null || true)"
+    bar+="$(printf '%0.s░' $(seq 1 "$empty") 2>/dev/null || true)"
+    printf '  %s[%s/%s]%s %s %s%s%s %s%d%%%s\n' \
+        "$DIM" "$current" "$total" "$RESET" \
+        "$bar" "$BOLD" "$label" "$RESET" \
+        "$DIM" "$pct" "$RESET"
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -579,27 +654,25 @@ copy_env_files() {
 
     step "Copying .env files"
     local count=0
+    local -a copied_paths=()
 
-    # Patterns to match
-    local -a patterns=(".env" ".env.*" ".env.local" ".env.development" ".env.test" ".env.production")
-
-    # Pass 1: Root-level .env files
-    for pattern in "${patterns[@]}"; do
-        for envfile in "${GIT_ROOT}"/${pattern}; do
-            [[ -f "$envfile" ]] || continue
-            local relpath="${envfile#"${GIT_ROOT}/"}"
-            _try_copy "$envfile" "$target_dir" "$relpath"
-            ((count++)) || true
-        done
-    done
-
-    # Pass 2: Deep .env files (max depth 4)
+    # Single pass: find all .env* files up to depth 4
+    # Catches: .env, .env.local, .env.development, .env.staging, .env.production,
+    #          .env.test, .env.ci, .env.docker, .env.example, and any nested ones
+    #          like packages/api/.env, apps/web/.env.local, etc.
     while IFS= read -r -d '' envfile; do
         [[ -f "$envfile" ]] || continue
         local relpath="${envfile#"${GIT_ROOT}/"}"
-        # Skip if already copied in pass 1
-        [[ "$(dirname "$relpath")" == "." ]] && continue
+
+        # Deduplicate (find can return same file via symlinks)
+        local already_copied=false
+        for p in "${copied_paths[@]+"${copied_paths[@]}"}"; do
+            [[ "$p" == "$relpath" ]] && { already_copied=true; break; }
+        done
+        [[ "$already_copied" == true ]] && continue
+
         _try_copy "$envfile" "$target_dir" "$relpath"
+        copied_paths+=("$relpath")
         ((count++)) || true
     done < <(find "$GIT_ROOT" -maxdepth 4 -name '.env*' -type f -print0 2>/dev/null || true)
 
@@ -765,9 +838,7 @@ manifest_update_status() {
 manifest_show() {
     [[ -f "$MANIFEST_FILE" ]] || { warn "No manifest found"; return 1; }
 
-    echo ""
-    _boxln "Feature Runner Manifest"
-    echo ""
+    _section "Manifest"
 
     local count
     count="$(jq '.features | length' "$MANIFEST_FILE")"
@@ -781,18 +852,18 @@ manifest_show() {
         branch="$(jq -r ".features[$i].branch" "$MANIFEST_FILE")"
         issue_num="$(jq -r ".features[$i].issue_number // \"\"" "$MANIFEST_FILE")"
 
-        local icon
+        local badge_text badge_bg
         case "$status" in
-            running)   icon="${YELLOW}●${RESET}" ;;
-            completed) icon="${GREEN}✓${RESET}" ;;
-            failed)    icon="${RED}✗${RESET}" ;;
-            *)         icon="${DIM}○${RESET}" ;;
+            running)   badge_text="RUN"; badge_bg="$BG_YELLOW" ;;
+            completed) badge_text=" OK"; badge_bg="$BG_GREEN" ;;
+            failed)    badge_text="ERR"; badge_bg="$BG_RED" ;;
+            *)         badge_text=" - "; badge_bg="$BG_BLACK" ;;
         esac
 
-        printf '  %s %s%-20s%s %s\n' "$icon" "$BOLD" "$slug" "$RESET" "$desc"
-        printf '    Branch: %s' "$branch"
-        [[ -n "$issue_num" && "$issue_num" != "null" ]] && printf '  Issue: #%s' "$issue_num"
+        printf '  %s  %s%-22s%s %s' "$(_badge "$badge_text" "$badge_bg")" "$BOLD" "$slug" "$RESET" "$desc"
+        [[ -n "$issue_num" && "$issue_num" != "null" ]] && printf '  %s#%s%s' "$DIM" "$issue_num" "$RESET"
         printf '\n'
+        printf '       %s%s%s\n' "$DIM" "$branch" "$RESET"
 
         ((i++))
     done
@@ -959,48 +1030,55 @@ spawn_background() {
     done
 
     ok "Launched ${#pids[@]} background feature(s)"
-    echo ""
 
-    # Dashboard loop
-    _boxln "Feature Runner Dashboard"
-    echo ""
-    info "Press Ctrl+C to detach (features continue running)"
+    # Dashboard
+    _section "Live Dashboard"
+    printf '  %sPress Ctrl+C to detach — features continue in background%s\n' "$DIM" "$RESET"
     echo ""
 
     # Trap SIGINT to detach gracefully
-    trap 'echo ""; info "Detached. Features continue in background."; info "Logs: ${log_dir}/"; exit 0' INT
+    trap 'echo ""; echo ""; info "Detached. Features continue in background."; info "Logs: ${log_dir}/"; exit 0' INT
 
     local all_done=false
     while [[ "$all_done" != true ]]; do
         all_done=true
+        local completed_count=0
         local i=0
         for pid in "${pids[@]}"; do
             local slug="${slugs[$i]}"
             local status_icon
 
             if kill -0 "$pid" 2>/dev/null; then
-                status_icon="${YELLOW}⟳${RESET} running"
+                status_icon="$(_badge "RUN" "$BG_YELLOW")"
                 all_done=false
             elif wait "$pid" 2>/dev/null; then
-                status_icon="${GREEN}✓${RESET} completed"
+                status_icon="$(_badge " OK" "$BG_GREEN")"
+                ((completed_count++)) || true
             else
-                status_icon="${RED}✗${RESET} failed"
+                status_icon="$(_badge "ERR" "$BG_RED")"
+                ((completed_count++)) || true
             fi
 
-            printf '\r  %s  %-30s' "$status_icon" "$slug"
-            echo ""
+            printf '  %s  %-30s\n' "$status_icon" "$slug"
             ((i++))
         done
 
+        # Progress bar
+        local total=${#pids[@]}
+        echo ""
+        _progress "$completed_count" "$total" "$(_timer_elapsed) elapsed"
+
         if [[ "$all_done" != true ]]; then
             sleep 2
-            # Move cursor up to overwrite
-            printf '\033[%dA' "${#pids[@]}"
+            # Move cursor up to overwrite (features + blank line + progress)
+            printf '\033[%dA' "$(( ${#pids[@]} + 2 ))"
         fi
     done
 
     echo ""
-    ok "All features completed"
+    printf '  %s%s ALL DONE %s  %s features completed in %s\n' \
+        "$BG_GREEN" "$WHITE" "$RESET" "${#pids[@]}" "$(_timer_elapsed)"
+    echo ""
     manifest_show
 }
 
@@ -1008,8 +1086,7 @@ orchestrate() {
     local -a slugs=()
     local -a cmds=()
 
-    step "Preparing ${#FEATURES[@]} feature(s)"
-    echo ""
+    _section "Feature Plan"
 
     # Generate slugs
     local i=0
@@ -1025,7 +1102,8 @@ orchestrate() {
         fi
         slugs+=("$slug")
 
-        printf '  %s%d.%s %s → %s%s%s\n' "$BOLD" $((i+1)) "$RESET" "$desc" "$DIM" "$slug" "$RESET"
+        printf '  %s%d%s  %-40s %s→ feature/%s%s\n' \
+            "$BOLD" $((i+1)) "$RESET" "$desc" "$DIM" "$slug" "$RESET"
         ((i++))
     done
     echo ""
@@ -1062,10 +1140,11 @@ orchestrate() {
     done
 
     # Detect terminal and spawn
+    _section "Launching"
+
     local term_mode
     term_mode="$(detect_terminal)"
-    info "Terminal mode: ${term_mode}"
-    echo ""
+    info "Terminal mode: ${BOLD}${term_mode}${RESET}"
 
     case "$term_mode" in
         iterm)
@@ -1225,8 +1304,11 @@ run_claude() {
             claude_args+=(--agents "$team_config")
         fi
 
-        step "Launching Claude Code for feature: ${slug}"
-        info "Model: ${MODEL} | Max turns: ${MAX_TURNS} | Teams: $([[ "$NO_TEAMS" == true ]] && echo "off" || echo "on")"
+        printf '  %s▸%s Launching Claude Code\n' "$CYAN" "$RESET"
+        printf '    %sModel%s     %s\n' "$DIM" "$RESET" "$MODEL"
+        printf '    %sTurns%s     %s max\n' "$DIM" "$RESET" "$MAX_TURNS"
+        printf '    %sTeams%s     %s\n' "$DIM" "$RESET" "$([[ "$NO_TEAMS" == true ]] && echo "off (subagents)" || echo "on (architect, implementer, tester, integrator)")"
+        printf '    %sWorktree%s  %s\n' "$DIM" "$RESET" "$worktree_dir"
         echo ""
 
         local exit_code=0
@@ -1424,6 +1506,7 @@ validate_prerequisites() {
 run_worker() {
     # Worker mode: implement a single feature
     trap _worker_exit_handler EXIT
+    _timer_start
 
     resolve_git_root
     RESOLVED_BASE_BRANCH="$BASE_BRANCH"
@@ -1434,23 +1517,27 @@ run_worker() {
     local issue_number="$_ISSUE_NUMBER"
     local issue_json_path="$_ISSUE_JSON"
 
-    echo ""
-    _boxln "Feature Runner — Worker"
-    info "Feature: ${desc}"
-    info "Slug: ${slug}"
-    info "Index: ${index}"
-    echo ""
+    _banner "Feature Runner — Worker" "feature/${slug}"
 
-    # Acquire lock
+    printf '  %sFeature%s  %s\n' "$DIM" "$RESET" "$desc"
+    printf '  %sBranch%s   feature/%s\n' "$DIM" "$RESET" "$slug"
+    printf '  %sIndex%s    %s\n' "$DIM" "$RESET" "$index"
+    [[ -n "$issue_number" ]] && printf '  %sIssue%s    #%s\n' "$DIM" "$RESET" "$issue_number"
+
+    # Phase 1: Setup
+    _section "Setup"
+
+    step "Acquiring lock..."
     acquire_lock "$slug"
+    ok "Lock acquired"
 
-    # Create worktree
+    step "Creating worktree..."
     create_worktree "$slug"
 
-    # Copy .env files
-    copy_env_files "$WORKTREE_DIR"
+    # Phase 2: Environment
+    _section "Environment"
 
-    # Rewrite ports
+    copy_env_files "$WORKTREE_DIR"
     rewrite_ports "$WORKTREE_DIR" "$index" "$PORT_OFFSET"
 
     # Write issue context if applicable
@@ -1461,28 +1548,39 @@ run_worker() {
         mkdir -p "${WORKTREE_DIR}/.feature-context"
         write_issue_context "$issue_json" "${WORKTREE_DIR}/.feature-context"
         has_issue_context=true
-        # Clean up temp file
         rm -f "$issue_json_path"
     fi
 
     # Initialize manifest reference
     MANIFEST_FILE="${WORKTREE_PARENT}/runner-manifest.json"
 
-    # Build prompt
+    # Phase 3: Claude
+    _section "Claude Code"
+
     local prompt
     prompt="$(build_prompt "$desc" "$slug" "$issue_number" "$has_issue_context")"
 
-    # Run Claude
     local claude_exit=0
     run_claude "$slug" "$prompt" "$WORKTREE_DIR" || claude_exit=$?
 
-    # Update manifest
+    # Phase 4: Results
+    _section "Results"
+
+    local elapsed
+    elapsed="$(_timer_elapsed)"
+
     if [[ $claude_exit -eq 0 ]]; then
         manifest_update_status "$slug" "completed" "0"
-        ok "Feature completed successfully: ${slug}"
+        echo ""
+        printf '  %s%s COMPLETED %s  %s  %s(%s)%s\n' \
+            "$BG_GREEN" "$WHITE" "$RESET" "$desc" "$DIM" "$elapsed" "$RESET"
+        echo ""
     else
         manifest_update_status "$slug" "failed" "$claude_exit"
-        error "Feature failed (exit code ${claude_exit}): ${slug}"
+        echo ""
+        printf '  %s%s FAILED %s  %s  %s(exit %d, %s)%s\n' \
+            "$BG_RED" "$WHITE" "$RESET" "$desc" "$DIM" "$claude_exit" "$elapsed" "$RESET"
+        echo ""
     fi
 
     # Drop into interactive shell
@@ -1490,31 +1588,48 @@ run_worker() {
 }
 
 run_orchestrator() {
-    echo ""
-    _boxln "Parallel Feature Runner v${VERSION}"
-    echo ""
+    _timer_start
+    _banner "Parallel Feature Runner" "v${VERSION}"
 
+    # Prerequisites
+    _section "Prerequisites"
     validate_prerequisites
+    ok "All tools available"
+
     resolve_git_root
     resolve_base_branch
 
-    # Read features from file if specified
+    # Input resolution
+    _section "Resolving Features"
+
     if [[ -n "$FROM_FILE" ]]; then
+        step "Reading from file: ${FROM_FILE}"
         read_features_from_file "$FROM_FILE"
+        ok "Loaded ${#FEATURES[@]} feature(s) from file"
     fi
 
-    # Resolve issues if specified
     if [[ ${#ISSUE_NUMBERS[@]} -gt 0 ]]; then
+        step "Fetching ${#ISSUE_NUMBERS[@]} issue(s) from GitHub..."
         resolve_issues
     fi
 
-    # Validate we have features
     if [[ ${#FEATURES[@]} -eq 0 ]]; then
         fatal "No features specified. Use --features, --from-file, or --issue."
     fi
 
-    info "Features to implement: ${#FEATURES[@]}"
     echo ""
+    printf '  %s%s %d FEATURE(S) %s  ready to implement\n' \
+        "$BG_BLUE" "$WHITE" "${#FEATURES[@]}" "$RESET"
+    echo ""
+
+    # Configuration summary
+    _section "Configuration"
+    printf '  %sModel%s        %s\n' "$DIM" "$RESET" "$MODEL"
+    printf '  %sMax turns%s    %s\n' "$DIM" "$RESET" "$MAX_TURNS"
+    printf '  %sBase branch%s  %s\n' "$DIM" "$RESET" "$RESOLVED_BASE_BRANCH"
+    printf '  %sPort offset%s  %s\n' "$DIM" "$RESET" "$PORT_OFFSET"
+    printf '  %sWorktree dir%s %s\n' "$DIM" "$RESET" "$WORKTREE_PARENT"
+    printf '  %sTeams%s        %s\n' "$DIM" "$RESET" "$([[ "$NO_TEAMS" == true ]] && echo "off (subagents)" || echo "on (4 agents)")"
 
     # Orchestrate
     orchestrate

@@ -682,6 +682,44 @@ test_env_copy_nested() {
     assert_file_exists "${target}/packages/api/.env" "nested .env copied"
 }
 
+test_env_copy_all_variants() {
+    # Create every common .env variant
+    echo "PORT=3000"        > "${TEST_REPO}/.env"
+    echo "LOCAL=true"       > "${TEST_REPO}/.env.local"
+    echo "DEV=true"         > "${TEST_REPO}/.env.development"
+    echo "TEST=true"        > "${TEST_REPO}/.env.test"
+    echo "PROD=true"        > "${TEST_REPO}/.env.production"
+    echo "STAGE=true"       > "${TEST_REPO}/.env.staging"
+    echo "CI=true"          > "${TEST_REPO}/.env.ci"
+    echo "DOCKER=true"      > "${TEST_REPO}/.env.docker"
+    # Nested variant
+    mkdir -p "${TEST_REPO}/apps/web"
+    echo "VITE_PORT=5173"   > "${TEST_REPO}/apps/web/.env.local"
+
+    local target="${TEST_TMPDIR}/target"
+    mkdir -p "$target"
+
+    _source_runner_functions
+    bash -c "
+        cd '${TEST_REPO}'
+        source '${TEST_TMPDIR}/runner_testable.sh'
+        GIT_ROOT='${TEST_REPO}'
+        WORKTREE_PARENT='${TEST_WORKTREE_DIR}'
+        NO_ENV_COPY=false
+        copy_env_files '${target}'
+    " 2>&1
+
+    assert_file_exists "${target}/.env"               ".env copied"
+    assert_file_exists "${target}/.env.local"          ".env.local copied"
+    assert_file_exists "${target}/.env.development"    ".env.development copied"
+    assert_file_exists "${target}/.env.test"           ".env.test copied"
+    assert_file_exists "${target}/.env.production"     ".env.production copied"
+    assert_file_exists "${target}/.env.staging"        ".env.staging copied"
+    assert_file_exists "${target}/.env.ci"             ".env.ci copied"
+    assert_file_exists "${target}/.env.docker"         ".env.docker copied"
+    assert_file_exists "${target}/apps/web/.env.local" "nested .env.local copied"
+}
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Test Group 7: Port Rewriting
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1495,6 +1533,7 @@ run_all_tests() {
     run_test "env: copy basic .env files" test_env_copy_basic
     run_test "env: skip when disabled" test_env_copy_skip_when_disabled
     run_test "env: copy nested .env files" test_env_copy_nested
+    run_test "env: copy all .env.* variants" test_env_copy_all_variants
     echo ""
 
     # Group 7: Port Rewriting
