@@ -406,7 +406,7 @@ _help_workflow() {
     printf '    %s%s3%s %s▸%s %sCoding%s      Implementer agent writes code, makes commits\n' "$BOLD" "$WHITE" "$RESET" "$CYAN" "$RESET" "$BOLD" "$RESET"
     printf '    %s%s4%s %s▸%s %sTesting%s     Tester agent writes & runs tests\n' "$BOLD" "$WHITE" "$RESET" "$CYAN" "$RESET" "$BOLD" "$RESET"
     printf '    %s%s5%s %s▸%s %sVerify%s      Integrator verifies end-to-end correctness\n' "$BOLD" "$WHITE" "$RESET" "$CYAN" "$RESET" "$BOLD" "$RESET"
-    printf '    %s%s6%s %s▸%s %sSummary%s     Writes SUMMARY.md, drops into interactive shell\n' "$BOLD" "$WHITE" "$RESET" "$CYAN" "$RESET" "$BOLD" "$RESET"
+    printf '    %s%s6%s %s▸%s %sSummary%s     Writes SUMMARY.md, shows session results\n' "$BOLD" "$WHITE" "$RESET" "$CYAN" "$RESET" "$BOLD" "$RESET"
     echo ""
 
     # ── Agent team ──
@@ -428,43 +428,36 @@ _help_workflow() {
 _help_shell() {
     _help_header
 
-    _help_section "INTERACTIVE SHELL"
+    _help_section "POST-SESSION"
     echo ""
-    printf '    %sAfter Claude finishes, you drop into a bash shell inside the%s\n' "$DIM" "$RESET"
-    printf '    %sfeature worktree. Use these commands to inspect results:%s\n' "$DIM" "$RESET"
-    echo ""
-
-    printf '    %s┌──────────────┬──────────────────────────────────────────┐%s\n' "$CYAN" "$RESET"
-    printf '    %s│%s %sCommand%s      %s│%s %sDescription%s                              %s│%s\n' "$CYAN" "$RESET" "$BOLD" "$RESET" "$CYAN" "$RESET" "$BOLD" "$RESET" "$CYAN" "$RESET"
-    printf '    %s├──────────────┼──────────────────────────────────────────┤%s\n' "$CYAN" "$RESET"
-    printf '    %s│%s %sstatus%s       %s│%s Feature info, artifacts, and commit list   %s│%s\n' "$CYAN" "$RESET" "$GREEN" "$RESET" "$CYAN" "$RESET" "$CYAN" "$RESET"
-    printf '    %s│%s %slog%s          %s│%s View SUMMARY.md in a pager                 %s│%s\n' "$CYAN" "$RESET" "$GREEN" "$RESET" "$CYAN" "$RESET" "$CYAN" "$RESET"
-    printf '    %s│%s %sdiff%s         %s│%s Show git diff from base branch             %s│%s\n' "$CYAN" "$RESET" "$GREEN" "$RESET" "$CYAN" "$RESET" "$CYAN" "$RESET"
-    printf '    %s│%s %smerge-ready%s  %s│%s Check if feature is ready to merge         %s│%s\n' "$CYAN" "$RESET" "$GREEN" "$RESET" "$CYAN" "$RESET" "$CYAN" "$RESET"
-    printf '    %s│%s %sfeatures%s     %s│%s List all features from the manifest        %s│%s\n' "$CYAN" "$RESET" "$GREEN" "$RESET" "$CYAN" "$RESET" "$CYAN" "$RESET"
-    printf '    %s│%s %shelp%s         %s│%s Show available shell commands              %s│%s\n' "$CYAN" "$RESET" "$GREEN" "$RESET" "$CYAN" "$RESET" "$CYAN" "$RESET"
-    printf '    %s│%s %sexit%s         %s│%s Leave the feature shell                    %s│%s\n' "$CYAN" "$RESET" "$GREEN" "$RESET" "$CYAN" "$RESET" "$CYAN" "$RESET"
-    printf '    %s└──────────────┴──────────────────────────────────────────┘%s\n' "$CYAN" "$RESET"
+    printf '    %sAfter Claude finishes, a summary is displayed and you return%s\n' "$DIM" "$RESET"
+    printf '    %sto your original terminal session. The worktree remains on disk.%s\n' "$DIM" "$RESET"
     echo ""
 
-    _help_section "SHELL ENVIRONMENT"
+    _help_section "INSPECTING RESULTS"
     echo ""
-    printf '    %sThese variables are exported in the interactive shell:%s\n' "$DIM" "$RESET"
-    echo ""
-    printf '    %sFEATURE_SLUG%s         The feature slug identifier\n' "$GREEN" "$RESET"
-    printf '    %sFEATURE_WORKTREE%s     Absolute path to the worktree\n' "$GREEN" "$RESET"
-    printf '    %sFEATURE_BASE_BRANCH%s  Branch the feature was forked from\n' "$GREEN" "$RESET"
-    printf '    %sFEATURE_MANIFEST%s     Path to runner-manifest.json\n' "$GREEN" "$RESET"
+    printf '    %sUse standard git commands to inspect the feature worktree:%s\n' "$DIM" "$RESET"
     echo ""
 
-    _help_section "MERGE READINESS CHECKS"
+    printf '    %s┌───────────────────────────────────────────┬────────────────────────────────────┐%s\n' "$CYAN" "$RESET"
+    printf '    %s│%s %sCommand%s                                   %s│%s %sDescription%s                      %s│%s\n' "$CYAN" "$RESET" "$BOLD" "$RESET" "$CYAN" "$RESET" "$BOLD" "$RESET" "$CYAN" "$RESET"
+    printf '    %s├───────────────────────────────────────────┼────────────────────────────────────┤%s\n' "$CYAN" "$RESET"
+    printf '    %s│%s %scd <worktree>%s                            %s│%s Enter the feature worktree         %s│%s\n' "$CYAN" "$RESET" "$GREEN" "$RESET" "$CYAN" "$RESET" "$CYAN" "$RESET"
+    printf '    %s│%s %sgit -C <worktree> log --oneline%s          %s│%s View commits on the branch         %s│%s\n' "$CYAN" "$RESET" "$GREEN" "$RESET" "$CYAN" "$RESET" "$CYAN" "$RESET"
+    printf '    %s│%s %sgit -C <worktree> diff <base>%s            %s│%s Show changes from base branch      %s│%s\n' "$CYAN" "$RESET" "$GREEN" "$RESET" "$CYAN" "$RESET" "$CYAN" "$RESET"
+    printf '    %s│%s %scat <worktree>/.feature-context/*.md%s     %s│%s Read generated artifacts           %s│%s\n' "$CYAN" "$RESET" "$GREEN" "$RESET" "$CYAN" "$RESET" "$CYAN" "$RESET"
+    printf '    %s└───────────────────────────────────────────┴────────────────────────────────────┘%s\n' "$CYAN" "$RESET"
     echo ""
-    printf '    %sThe %smerge-ready%s%s command verifies:%s\n' "$DIM" "$GREEN" "$RESET" "$DIM" "$RESET"
+
+    _help_section "ARTIFACTS"
     echo ""
-    printf '    %s✓%s  Working tree is clean (no uncommitted changes)\n' "$GREEN" "$RESET"
-    printf '    %s✓%s  Feature branch has commits ahead of base\n' "$GREEN" "$RESET"
-    printf '    %s✓%s  TEST-RESULTS.md exists\n' "$GREEN" "$RESET"
-    printf '    %s✓%s  SUMMARY.md exists\n' "$GREEN" "$RESET"
+    printf '    %sIssue-based tasks (--issue) produce these in .feature-context/:%s\n' "$DIM" "$RESET"
+    echo ""
+    printf '    %sPLAN.md%s             Architecture and implementation plan\n' "$GREEN" "$RESET"
+    printf '    %sTEST-RESULTS.md%s     Test suite output and results\n' "$GREEN" "$RESET"
+    printf '    %sINTEGRATION.md%s      Integration verification notes\n' "$GREEN" "$RESET"
+    printf '    %sSUMMARY.md%s          Final summary with merge-readiness\n' "$GREEN" "$RESET"
+    printf '    %sISSUE.md%s            GitHub issue context (title, body, comments)\n' "$GREEN" "$RESET"
     echo ""
 }
 
@@ -1690,7 +1683,7 @@ run_claude() (
 # Section 10: Post-Session Interactive Shell
 # ─────────────────────────────────────────────────────────────────────────────
 
-drop_into_shell() {
+show_session_summary() {
     local slug="$1"
     local worktree_dir="$2"
     local base_branch="$3"
@@ -1698,157 +1691,39 @@ drop_into_shell() {
     echo ""
     _boxln "Feature session complete: ${slug}"
     echo ""
-    info "Dropping into interactive shell in worktree"
-    info "Type 'help' for available commands, 'exit' to leave"
+
+    # Show branch and worktree info
+    printf '  %sBranch%s     feature/%s\n' "$DIM" "$RESET" "$slug"
+    printf '  %sWorktree%s   %s\n' "$DIM" "$RESET" "$worktree_dir"
+    printf '  %sBase%s       %s\n' "$DIM" "$RESET" "$base_branch"
     echo ""
 
-    # Create rcfile for custom shell
-    local rcfile
-    rcfile="$(mktemp /tmp/runner-shell-XXXXXX)"
-
-    cat > "$rcfile" <<SHELL_EOF
-# Source user's profile
-[[ -f ~/.bashrc ]] && source ~/.bashrc 2>/dev/null
-[[ -f ~/.bash_profile ]] && source ~/.bash_profile 2>/dev/null
-
-# Custom prompt
-export PS1='${GREEN}[feature/${slug}]${RESET} \w \$ '
-
-# Feature metadata
-export FEATURE_SLUG="${slug}"
-export FEATURE_WORKTREE="${worktree_dir}"
-export FEATURE_BASE_BRANCH="${base_branch}"
-export FEATURE_MANIFEST="${MANIFEST_FILE}"
-
-cd "${worktree_dir}"
-
-# Convenience commands
-status() {
-    echo ""
-    echo "${BOLD}Feature: ${slug}${RESET}"
-    echo "  Worktree: ${worktree_dir}"
-    echo "  Branch: feature/${slug}"
-    echo "  Base: ${base_branch}"
-    echo ""
-
-    if [[ -d .feature-context ]]; then
-        echo "${BOLD}Artifacts:${RESET}"
-        ls -la .feature-context/ 2>/dev/null | tail -n +2
-        echo ""
-    fi
-
-    echo "${BOLD}Commits on this branch:${RESET}"
-    git log --oneline "${base_branch}..HEAD" 2>/dev/null || echo "  (no commits yet)"
-    echo ""
-}
-
-log() {
-    if [[ -f .feature-context/SUMMARY.md ]]; then
-        less .feature-context/SUMMARY.md
-    else
-        echo "No SUMMARY.md found yet."
-    fi
-}
-
-diff() {
-    git diff "${base_branch}...HEAD"
-}
-
-merge-ready() {
-    echo ""
-    local ready=true
-
-    # Clean tree?
-    if [[ -z \$(git status --porcelain) ]]; then
-        echo "  ${GREEN}✓${RESET} Working tree is clean"
-    else
-        echo "  ${RED}✗${RESET} Working tree has uncommitted changes"
-        ready=false
-    fi
-
-    # Has commits?
+    # Show commits on the feature branch
     local commits
-    commits=\$(git rev-list "${base_branch}..HEAD" --count 2>/dev/null || echo 0)
-    if [[ \$commits -gt 0 ]]; then
-        echo "  ${GREEN}✓${RESET} Has \${commits} commit(s) on branch"
+    commits="$(git -C "$worktree_dir" rev-list "${base_branch}..HEAD" --count 2>/dev/null || echo 0)"
+    if [[ "$commits" -gt 0 ]]; then
+        printf '  %s%s commit(s) on branch:%s\n' "$BOLD" "$commits" "$RESET"
+        git -C "$worktree_dir" log --oneline "${base_branch}..HEAD" 2>/dev/null \
+            | while IFS= read -r line; do printf '    %s\n' "$line"; done
     else
-        echo "  ${RED}✗${RESET} No commits on branch"
-        ready=false
-    fi
-
-    # Test results?
-    if [[ -f .feature-context/TEST-RESULTS.md ]]; then
-        echo "  ${GREEN}✓${RESET} Test results exist"
-    else
-        echo "  ${YELLOW}⚠${RESET} No test results found"
-    fi
-
-    # Summary?
-    if [[ -f .feature-context/SUMMARY.md ]]; then
-        echo "  ${GREEN}✓${RESET} Summary exists"
-    else
-        echo "  ${RED}✗${RESET} No summary found"
-        ready=false
-    fi
-
-    echo ""
-    if [[ "\$ready" == true ]]; then
-        echo "  ${GREEN}${BOLD}→ Ready to merge${RESET}"
-    else
-        echo "  ${YELLOW}${BOLD}→ Not ready — see issues above${RESET}"
+        info "No commits on branch yet"
     fi
     echo ""
-}
 
-features() {
-    if [[ -f "${MANIFEST_FILE}" ]]; then
-        local count
-        count=\$(jq '.features | length' "${MANIFEST_FILE}")
-        echo ""
-        echo "${BOLD}All Features:${RESET}"
-        local i=0
-        while [[ \$i -lt \$count ]]; do
-            local s st d
-            s=\$(jq -r ".features[\$i].slug" "${MANIFEST_FILE}")
-            st=\$(jq -r ".features[\$i].status" "${MANIFEST_FILE}")
-            d=\$(jq -r ".features[\$i].description" "${MANIFEST_FILE}")
-            local icon
-            case "\$st" in
-                running)   icon="${YELLOW}●${RESET}" ;;
-                completed) icon="${GREEN}✓${RESET}" ;;
-                failed)    icon="${RED}✗${RESET}" ;;
-                *)         icon="○" ;;
-            esac
-            if [[ "\$s" == "${slug}" ]]; then
-                printf '  %s %-20s %s ${BOLD}← current${RESET}\n' "\$icon" "\$s" "\$d"
-            else
-                printf '  %s %-20s %s\n' "\$icon" "\$s" "\$d"
-            fi
-            ((i++))
+    # Show artifacts
+    if [[ -d "${worktree_dir}/.feature-context" ]]; then
+        printf '  %sArtifacts:%s\n' "$BOLD" "$RESET"
+        for f in "${worktree_dir}"/.feature-context/*.md; do
+            [[ -f "$f" ]] && printf '    %s✓%s %s\n' "$GREEN" "$RESET" "$(basename "$f")"
         done
         echo ""
-    else
-        echo "No manifest found."
     fi
-}
 
-help() {
+    # Hint for next steps
+    printf '  %sNext steps:%s\n' "$DIM" "$RESET"
+    printf '    cd %s              %s# inspect the worktree%s\n' "$worktree_dir" "$DIM" "$RESET"
+    printf '    git -C %s diff %s  %s# view changes%s\n' "$worktree_dir" "$base_branch" "$DIM" "$RESET"
     echo ""
-    echo "${BOLD}Available commands:${RESET}"
-    echo "  status       Show feature info, artifacts, and commits"
-    echo "  log          Display SUMMARY.md"
-    echo "  diff         Show diff from base branch"
-    echo "  merge-ready  Check if feature is ready to merge"
-    echo "  features     Show all features from manifest"
-    echo "  help         Show this help"
-    echo "  exit         Leave the feature shell"
-    echo ""
-}
-
-echo "${DIM}Type 'help' for commands, 'status' to see feature info${RESET}"
-SHELL_EOF
-
-    exec bash --rcfile "$rcfile"
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1964,8 +1839,8 @@ run_worker() {
         echo ""
     fi
 
-    # Drop into interactive shell
-    drop_into_shell "$slug" "$WORKTREE_DIR" "$RESOLVED_BASE_BRANCH"
+    # Show summary and return to user's session
+    show_session_summary "$slug" "$WORKTREE_DIR" "$RESOLVED_BASE_BRANCH"
 }
 
 run_orchestrator() {
