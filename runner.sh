@@ -1494,7 +1494,7 @@ orchestrate() {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Section 9: Claude Prompt — Agent Team
+# Section 9: Claude Prompt & Invocation
 # ─────────────────────────────────────────────────────────────────────────────
 
 build_prompt() {
@@ -1581,73 +1581,84 @@ Work through these phases in order. Each phase builds on the previous one.
 PROMPT_EOF
 }
 
-build_team_config() {
-    cat <<'TEAM_EOF'
-[
-  {
-    "name": "architect",
+build_subagent_config() {
+    cat <<'AGENTS_EOF'
+{
+  "architect": {
     "description": "Analyzes codebase structure and designs implementation plan",
-    "prompt": "You are the architect. Your job is to explore the codebase, understand its patterns, and write a clear implementation plan to .feature-context/PLAN.md. Focus on: file structure, existing patterns, where the feature fits, and step-by-step implementation approach.",
-    "tools": ["read", "glob", "grep", "write"]
+    "prompt": "You are the architect. Explore the codebase, understand its patterns, and write a clear implementation plan to .feature-context/PLAN.md. Focus on: file structure, existing patterns, where the feature fits, and step-by-step implementation approach.",
+    "tools": ["Read", "Grep", "Glob", "Bash"],
+    "model": "opus"
   },
-  {
-    "name": "implementer",
+  "implementer": {
     "description": "Writes production code following the architect's plan",
     "prompt": "You are the implementer. Read the plan in .feature-context/PLAN.md, then write clean, production-quality code that follows existing patterns. Make atomic commits after each logical unit of work.",
-    "tools": ["read", "glob", "grep", "write", "edit", "bash"]
+    "tools": ["Read", "Grep", "Glob", "Bash", "Edit", "Write"],
+    "model": "opus"
   },
-  {
-    "name": "tester",
+  "tester": {
     "description": "Writes tests and runs the test suite",
     "prompt": "You are the tester. Write comprehensive unit and integration tests following existing test patterns. Run the full test suite and report results to .feature-context/TEST-RESULTS.md.",
-    "tools": ["read", "glob", "grep", "write", "edit", "bash"]
+    "tools": ["Read", "Grep", "Glob", "Bash", "Edit", "Write"],
+    "model": "opus"
   },
-  {
-    "name": "integrator",
+  "integrator": {
     "description": "Verifies end-to-end functionality and integration",
     "prompt": "You are the integrator. Verify all imports, exports, types, and dependencies are correct. Check end-to-end functionality. Update docs if needed. Write findings to .feature-context/INTEGRATION.md.",
-    "tools": ["read", "glob", "grep", "write", "edit", "bash"]
+    "tools": ["Read", "Grep", "Glob", "Bash", "Edit", "Write"],
+    "model": "opus"
   }
-]
-TEAM_EOF
+}
+AGENTS_EOF
 }
 
-run_claude() {
+run_claude() (
+    # Subshell so cd doesn't affect the parent script
     local slug="$1"
     local prompt="$2"
     local worktree_dir="$3"
 
-    (
-        cd "$worktree_dir" || fatal "Cannot cd to worktree: ${worktree_dir}"
+    cd "$worktree_dir" || fatal "Cannot cd to worktree: ${worktree_dir}"
 
-        # Create feature context directory
-        mkdir -p .feature-context
+    # Create feature context directory
+    mkdir -p .feature-context
 
-        local -a claude_args=()
-        claude_args+=(--print)
-        claude_args+=(--model "$MODEL")
-        claude_args+=(--max-turns "$MAX_TURNS")
-        claude_args+=(--dangerously-skip-permissions)
+    local -a claude_args=()
+    claude_args+=(--model "$MODEL")
+    claude_args+=(--max-turns "$MAX_TURNS")
+    claude_args+=(--dangerously-skip-permissions)
 
-        if [[ "$NO_TEAMS" != true ]]; then
-            local team_config
-            team_config="$(build_team_config)"
-            claude_args+=(--agents "$team_config")
-        fi
+    # Non-interactive print mode when not in a TTY (background mode)
+    [[ ! -t 1 ]] && claude_args+=(--print)
 
-        printf '  %s▸%s Launching Claude Code\n' "$CYAN" "$RESET"
-        printf '    %sModel%s     %s\n' "$DIM" "$RESET" "$MODEL"
-        printf '    %sTurns%s     %s max\n' "$DIM" "$RESET" "$MAX_TURNS"
-        printf '    %sTeams%s     %s\n' "$DIM" "$RESET" "$([[ "$NO_TEAMS" == true ]] && echo "off (subagents)" || echo "on (architect, implementer, tester, integrator)")"
-        printf '    %sWorktree%s  %s\n' "$DIM" "$RESET" "$worktree_dir"
-        echo ""
+    local -a claude_env=()
+    local agent_mode="agent teams"
 
-        local exit_code=0
-        echo "$prompt" | claude "${claude_args[@]}" || exit_code=$?
+    if [[ "$NO_TEAMS" != true ]]; then
+        # Agent teams mode: experimental env var (like reviewer)
+        claude_env+=("CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1")
+    else
+        # Subagent mode: explicit --agents JSON config
+        agent_mode="subagents"
+        local agents_config
+        agents_config="$(build_subagent_config)"
+        claude_args+=(--agents "$agents_config")
+    fi
 
-        return $exit_code
-    )
-}
+    printf '  %s▸%s Launching Claude Code\n' "$CYAN" "$RESET"
+    printf '    %sModel%s       %s\n' "$DIM" "$RESET" "$MODEL"
+    printf '    %sTurns%s       %s max\n' "$DIM" "$RESET" "$MAX_TURNS"
+    printf '    %sAgent mode%s  %s\n' "$DIM" "$RESET" "$agent_mode"
+    printf '    %sWorktree%s    %s\n' "$DIM" "$RESET" "$worktree_dir"
+    echo ""
+
+    # Pass prompt as positional argument (not via stdin pipe)
+    if [[ ${#claude_env[@]} -gt 0 ]]; then
+        env "${claude_env[@]}" claude "${claude_args[@]}" "$prompt"
+    else
+        claude "${claude_args[@]}" "$prompt"
+    fi
+)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Section 10: Post-Session Interactive Shell
@@ -1960,7 +1971,7 @@ run_orchestrator() {
     printf '  %sBase branch%s  %s\n' "$DIM" "$RESET" "$RESOLVED_BASE_BRANCH"
     printf '  %sPort offset%s  %s\n' "$DIM" "$RESET" "$PORT_OFFSET"
     printf '  %sWorktree dir%s %s\n' "$DIM" "$RESET" "$WORKTREE_PARENT"
-    printf '  %sTeams%s        %s\n' "$DIM" "$RESET" "$([[ "$NO_TEAMS" == true ]] && echo "off (subagents)" || echo "on (4 agents)")"
+    printf '  %sAgent mode%s  %s\n' "$DIM" "$RESET" "$([[ "$NO_TEAMS" == true ]] && echo "subagents" || echo "agent teams")"
 
     # Orchestrate
     orchestrate
