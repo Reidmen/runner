@@ -167,43 +167,369 @@ _ISSUE_TITLES=()
 _ISSUE_JSONS=()
 _ISSUE_NUM_LIST=()
 
+_help_header() {
+    local width=60
+    local border
+    border=$(printf '═%.0s' $(seq 1 "$width"))
+    echo ""
+    printf '  %s%s╔%s╗%s\n' "$BOLD" "$CYAN" "$border" "$RESET"
+    printf '  %s%s║%s  %s%-*s%s%s║%s\n' "$BOLD" "$CYAN" "$RESET" "$WHITE" $(( width - 2 )) "runner.sh  —  Parallel Feature Runner" "$BOLD" "$CYAN" "$RESET"
+    printf '  %s%s║%s  %s%-*s%s%s║%s\n' "$BOLD" "$CYAN" "$RESET" "$DIM" $(( width - 2 )) "Spawn Claude Code sessions in isolated git worktrees" "$BOLD" "$CYAN" "$RESET"
+    printf '  %s%s║%s  %s%-*s%s%s║%s\n' "$BOLD" "$CYAN" "$RESET" "$DIM" $(( width - 2 )) "v${VERSION}" "$BOLD" "$CYAN" "$RESET"
+    printf '  %s%s╚%s╝%s\n' "$BOLD" "$CYAN" "$border" "$RESET"
+    echo ""
+}
+
+_help_section() {
+    local title="$1"
+    printf '\n  %s%s%s\n' "$BOLD" "$title" "$RESET"
+    printf '  %s%s%s\n' "$DIM" "$(printf '─%.0s' $(seq 1 ${#title}))" "$RESET"
+}
+
+_help_opt() {
+    local flags="$1"
+    local desc="$2"
+    local default="${3:-}"
+    printf '    %s%-30s%s %s' "$GREEN" "$flags" "$RESET" "$desc"
+    if [[ -n "$default" ]]; then
+        printf '  %s(%s)%s' "$DIM" "$default" "$RESET"
+    fi
+    printf '\n'
+}
+
+_help_example() {
+    local comment="$1"
+    local cmd="$2"
+    printf '    %s# %s%s\n' "$DIM" "$comment" "$RESET"
+    printf '    %s\$ %s%s%s\n\n' "$BOLD" "$GREEN" "$cmd" "$RESET"
+}
+
 usage() {
-    cat <<EOF
-${BOLD}Parallel Feature Runner${RESET} v${VERSION}
+    local topic="${1:-}"
 
-${BOLD}USAGE${RESET}
-  ${SCRIPT_NAME} --features "Add auth" "Build API" [OPTIONS]
-  ${SCRIPT_NAME} --from-file features.txt [OPTIONS]
-  ${SCRIPT_NAME} --issue 42 --issue 78 [OPTIONS]
-  ${SCRIPT_NAME} --issue 42 --features "Extra task" [OPTIONS]
-
-${BOLD}INPUT OPTIONS${RESET}
-  --features <desc...>        Feature descriptions (one or more strings)
-  --from-file <file>          Read features from file (one per line, # comments)
-  --issue <number>            GitHub issue number (repeatable)
-
-${BOLD}OPTIONS${RESET}
-  -r, --repo <owner/repo>    Target repository (default: current repo)
-  -d, --dir <path>           Worktree parent directory (default: ~/.feature_runner)
-  -m, --model <model>        Claude model (default: opus)
-  -b, --max-turns <N>        Max agentic turns (default: 75)
-  --base-branch <branch>     Branch to create features from (default: current)
-  --port-offset <N>          Port increment per feature (default: 10)
-  --no-port-rewrite          Skip port rewriting
-  --tabs <mode>              Terminal mode: auto|iterm|tmux|bg (default: auto)
-  -c, --cleanup              Remove worktree after completion
-  --no-env-copy              Skip .env copying
-  --no-teams                 Use subagents instead of agent teams
-  --no-color                 Disable colors
-
-${BOLD}EXAMPLES${RESET}
-  ${SCRIPT_NAME} --features "Add user authentication with OAuth2"
-  ${SCRIPT_NAME} --features "Add auth" "Build REST API" "Add search" --tabs tmux
-  ${SCRIPT_NAME} --from-file features.txt --model sonnet --max-turns 50
-  ${SCRIPT_NAME} --issue 42 --issue 78 --base-branch develop
-  ${SCRIPT_NAME} --issue 42 --features "Add rate limiting" --port-offset 20
-EOF
+    case "$topic" in
+        examples)  _help_examples ;;
+        workflow)  _help_workflow ;;
+        shell)     _help_shell ;;
+        env)       _help_env ;;
+        "")        _help_main ;;
+        *)
+            error "Unknown help topic: ${topic}"
+            echo ""
+            printf '  Available topics: %sexamples%s  %sworkflow%s  %sshell%s  %senv%s\n' \
+                "$GREEN" "$RESET" "$GREEN" "$RESET" "$GREEN" "$RESET" "$GREEN" "$RESET"
+            echo ""
+            exit 1
+            ;;
+    esac
     exit 0
+}
+
+_help_main() {
+    _help_header
+
+    # ── Quick start ──
+    printf '  %s%sQuick Start%s\n' "$BOLD" "$YELLOW" "$RESET"
+    printf '    %s\$ %s%s --features "Add user auth" "Build REST API"%s\n' \
+        "$BOLD" "$GREEN" "$SCRIPT_NAME" "$RESET"
+    echo ""
+
+    # ── Usage patterns ──
+    _help_section "USAGE"
+    printf '    %s <input> [options]\n' "$SCRIPT_NAME"
+    echo ""
+    printf '    %sAt least one input source is required. They can be combined.%s\n' "$DIM" "$RESET"
+
+    # ── Input sources ──
+    _help_section "INPUT SOURCES"
+    _help_opt "--features <desc...>" "Feature descriptions as quoted strings"
+    _help_opt "--from-file <file>" "Load features from file (one per line, # = comment)"
+    _help_opt "--issue <number>" "GitHub issue number (repeatable, needs gh CLI)"
+
+    # ── Configuration ──
+    _help_section "CONFIGURATION"
+    _help_opt "-m, --model <model>" "Claude model to use" "default: opus"
+    _help_opt "-b, --max-turns <N>" "Max agentic turns per feature" "default: 75"
+    _help_opt "--base-branch <branch>" "Branch to fork features from" "default: current"
+    _help_opt "-r, --repo <owner/repo>" "Target GitHub repository" "default: current"
+
+    # ── Terminal ──
+    _help_section "TERMINAL"
+    _help_opt "--tabs <mode>" "How to spawn parallel sessions"
+    printf '      %siterm%s   Open each feature in an iTerm2 tab\n' "$CYAN" "$RESET"
+    printf '      %stmux%s    Create a tmux session with windows\n' "$CYAN" "$RESET"
+    printf '      %sbg%s      Run as background jobs with live dashboard\n' "$CYAN" "$RESET"
+    printf '      %sauto%s    Auto-detect best option %s(default)%s\n' "$CYAN" "$RESET" "$DIM" "$RESET"
+
+    # ── Environment ──
+    _help_section "ENVIRONMENT"
+    _help_opt "-d, --dir <path>" "Worktree parent directory" "default: ~/.feature_runner"
+    _help_opt "--port-offset <N>" "Port increment per feature" "default: 10"
+    _help_opt "--no-port-rewrite" "Skip automatic port rewriting"
+    _help_opt "--no-env-copy" "Skip .env file copying to worktrees"
+
+    # ── Behavior ──
+    _help_section "BEHAVIOR"
+    _help_opt "--no-teams" "Use subagents instead of 4-agent teams"
+    _help_opt "-c, --cleanup" "Remove worktree after session ends"
+    _help_opt "--no-color" "Disable colored output"
+
+    # ── Info ──
+    _help_section "INFO"
+    _help_opt "-h, --help [topic]" "Show help (topics: examples, workflow, shell, env)"
+    _help_opt "--version" "Show version number"
+
+    # ── Quick examples ──
+    _help_section "EXAMPLES"
+    _help_example "Implement a single feature" \
+        "${SCRIPT_NAME} --features \"Add OAuth2 authentication\""
+    _help_example "Three features in parallel via tmux" \
+        "${SCRIPT_NAME} --features \"Auth\" \"API\" \"Search\" --tabs tmux"
+    _help_example "From GitHub issues" \
+        "${SCRIPT_NAME} --issue 42 --issue 78 --base-branch develop"
+
+    printf '    %sSee more: %s --help examples%s\n' "$DIM" "$SCRIPT_NAME" "$RESET"
+
+    # ── More help ──
+    _help_section "MORE HELP"
+    printf '    %s--help examples%s   Annotated usage examples\n' "$GREEN" "$RESET"
+    printf '    %s--help workflow%s   How runner.sh works under the hood\n' "$GREEN" "$RESET"
+    printf '    %s--help shell%s      Interactive shell commands (post-session)\n' "$GREEN" "$RESET"
+    printf '    %s--help env%s        Environment variables & file structure\n' "$GREEN" "$RESET"
+    echo ""
+}
+
+_help_examples() {
+    _help_header
+
+    _help_section "BASIC USAGE"
+
+    _help_example "Run a single feature — opens in your current terminal" \
+        "${SCRIPT_NAME} --features \"Add user authentication with OAuth2\""
+
+    _help_example "Run multiple features in parallel — each gets its own worktree" \
+        "${SCRIPT_NAME} --features \"Add auth\" \"Build REST API\" \"Add search\""
+
+    _help_section "GITHUB ISSUES"
+
+    _help_example "Implement features from GitHub issues (fetches title, body, comments)" \
+        "${SCRIPT_NAME} --issue 42 --issue 78"
+
+    _help_example "Mix issues with manual feature descriptions" \
+        "${SCRIPT_NAME} --issue 42 --features \"Add rate limiting\" \"Fix caching\""
+
+    _help_example "Target a specific repo (not the current one)" \
+        "${SCRIPT_NAME} --issue 15 --repo myorg/myapp"
+
+    _help_section "FROM FILE"
+
+    printf '    %s# features.txt — one feature per line, # for comments%s\n' "$DIM" "$RESET"
+    printf '    %sAdd OAuth2 login flow%s\n' "$CYAN" "$RESET"
+    printf '    %sBuild REST API for /users endpoint%s\n' "$CYAN" "$RESET"
+    printf '    %s# Add full-text search (deferred)%s\n' "$CYAN" "$RESET"
+    printf '    %sAdd rate limiting middleware%s\n' "$CYAN" "$RESET"
+    echo ""
+    _help_example "Load features from the file above" \
+        "${SCRIPT_NAME} --from-file features.txt"
+
+    _help_example "Combine file + issues + inline features" \
+        "${SCRIPT_NAME} --from-file tasks.txt --issue 42 --features \"Hotfix\""
+
+    _help_section "TERMINAL MODES"
+
+    _help_example "Force iTerm2 tabs (macOS)" \
+        "${SCRIPT_NAME} --features \"Auth\" \"API\" --tabs iterm"
+
+    _help_example "Force tmux windows" \
+        "${SCRIPT_NAME} --features \"Auth\" \"API\" --tabs tmux"
+
+    _help_example "Background mode with live dashboard" \
+        "${SCRIPT_NAME} --features \"Auth\" \"API\" --tabs bg"
+
+    _help_section "ADVANCED"
+
+    _help_example "Use sonnet model with extended turns" \
+        "${SCRIPT_NAME} --features \"Complex refactor\" --model sonnet --max-turns 150"
+
+    _help_example "Custom worktree dir, no .env port rewriting" \
+        "${SCRIPT_NAME} --features \"Auth\" -d ~/projects/features --no-port-rewrite"
+
+    _help_example "Fork from develop branch, auto-cleanup worktrees" \
+        "${SCRIPT_NAME} --features \"Auth\" --base-branch develop --cleanup"
+
+    _help_example "Disable agent teams (use subagent mode)" \
+        "${SCRIPT_NAME} --features \"Small fix\" --no-teams --max-turns 30"
+}
+
+_help_workflow() {
+    _help_header
+
+    _help_section "HOW IT WORKS"
+    echo ""
+    printf '    %srunner.sh uses a self-spawning architecture. The same script%s\n' "$DIM" "$RESET"
+    printf '    %sacts as both orchestrator (multi-feature) and worker (single).%s\n' "$DIM" "$RESET"
+    echo ""
+
+    # ── Visual workflow ──
+    printf '    %s%s┌─────────────────────────────────────────────────────┐%s\n' "$BOLD" "$CYAN" "$RESET"
+    printf '    %s%s│%s  %s\$ runner.sh --features "Auth" "API" "Search"%s      %s%s│%s\n' "$BOLD" "$CYAN" "$RESET" "$WHITE" "$RESET" "$BOLD" "$CYAN" "$RESET"
+    printf '    %s%s└─────────────────────┬───────────────────────────────┘%s\n' "$BOLD" "$CYAN" "$RESET"
+    printf '                          %s│%s\n' "$CYAN" "$RESET"
+    printf '                  %s%sORCHESTRATOR%s\n' "$BOLD" "$YELLOW" "$RESET"
+    printf '            %sParse args, resolve issues,%s\n' "$DIM" "$RESET"
+    printf '            %svalidate slugs, init manifest%s\n' "$DIM" "$RESET"
+    printf '                  %s%s│%s\n' "$BOLD" "$CYAN" "$RESET"
+    printf '          %s┌───────┼───────┐%s\n' "$CYAN" "$RESET"
+    printf '          %s│       │       │%s\n' "$CYAN" "$RESET"
+    printf '          %sv       v       v%s\n' "$CYAN" "$RESET"
+    printf '      %s┌───────┐┌───────┐┌───────┐%s\n' "$CYAN" "$RESET"
+    printf '      %s│%s%s Auth %s%s│%s%s│%s%s  API %s%s│%s%s│%s%sSearch%s%s│%s\n' \
+        "$CYAN" "$RESET" "$GREEN" "$RESET" "$CYAN" "$RESET" \
+        "$CYAN" "$RESET" "$GREEN" "$RESET" "$CYAN" "$RESET" \
+        "$CYAN" "$RESET" "$GREEN" "$RESET" "$CYAN" "$RESET"
+    printf '      %s│%sWorker%s│%s%s│%sWorker%s│%s%s│%sWorker%s│%s\n' \
+        "$CYAN" "$DIM" "$RESET" "$CYAN" \
+        "$CYAN" "$DIM" "$RESET" "$CYAN" \
+        "$CYAN" "$DIM" "$RESET" "$CYAN"
+    printf '      %s└───┬───┘└───┬───┘└───┬───┘%s\n' "$CYAN" "$RESET"
+    printf '          %s│       │       │%s\n' "$CYAN" "$RESET"
+    echo ""
+
+    printf '    %sEach worker runs independently in its own git worktree:%s\n' "$DIM" "$RESET"
+    echo ""
+
+    # ── Worker phases ──
+    _help_section "WORKER PHASES"
+    echo ""
+    printf '    %s%s1%s %s▸%s %sSetup%s       Create worktree, acquire lock, copy .env\n' "$BOLD" "$WHITE" "$RESET" "$CYAN" "$RESET" "$BOLD" "$RESET"
+    printf '    %s%s2%s %s▸%s %sPlanning%s    Architect agent analyzes codebase, writes PLAN.md\n' "$BOLD" "$WHITE" "$RESET" "$CYAN" "$RESET" "$BOLD" "$RESET"
+    printf '    %s%s3%s %s▸%s %sCoding%s      Implementer agent writes code, makes commits\n' "$BOLD" "$WHITE" "$RESET" "$CYAN" "$RESET" "$BOLD" "$RESET"
+    printf '    %s%s4%s %s▸%s %sTesting%s     Tester agent writes & runs tests\n' "$BOLD" "$WHITE" "$RESET" "$CYAN" "$RESET" "$BOLD" "$RESET"
+    printf '    %s%s5%s %s▸%s %sVerify%s      Integrator verifies end-to-end correctness\n' "$BOLD" "$WHITE" "$RESET" "$CYAN" "$RESET" "$BOLD" "$RESET"
+    printf '    %s%s6%s %s▸%s %sSummary%s     Writes SUMMARY.md, drops into interactive shell\n' "$BOLD" "$WHITE" "$RESET" "$CYAN" "$RESET" "$BOLD" "$RESET"
+    echo ""
+
+    # ── Agent team ──
+    _help_section "AGENT TEAM (4 agents)"
+    echo ""
+    printf '    %s┌──────────────┬─────────────────────────────────────────┐%s\n' "$CYAN" "$RESET"
+    printf '    %s│%s %sAgent%s        %s│%s %sRole%s                                    %s│%s\n' "$CYAN" "$RESET" "$BOLD" "$RESET" "$CYAN" "$RESET" "$BOLD" "$RESET" "$CYAN" "$RESET"
+    printf '    %s├──────────────┼─────────────────────────────────────────┤%s\n' "$CYAN" "$RESET"
+    printf '    %s│%s %sarchitect%s    %s│%s Explore codebase, design plan, PLAN.md    %s│%s\n' "$CYAN" "$RESET" "$GREEN" "$RESET" "$CYAN" "$RESET" "$CYAN" "$RESET"
+    printf '    %s│%s %simplementer%s  %s│%s Write production code, atomic commits      %s│%s\n' "$CYAN" "$RESET" "$GREEN" "$RESET" "$CYAN" "$RESET" "$CYAN" "$RESET"
+    printf '    %s│%s %stester%s       %s│%s Write tests, run suite, TEST-RESULTS.md    %s│%s\n' "$CYAN" "$RESET" "$GREEN" "$RESET" "$CYAN" "$RESET" "$CYAN" "$RESET"
+    printf '    %s│%s %sintegrator%s   %s│%s Verify integration, update docs            %s│%s\n' "$CYAN" "$RESET" "$GREEN" "$RESET" "$CYAN" "$RESET" "$CYAN" "$RESET"
+    printf '    %s└──────────────┴─────────────────────────────────────────┘%s\n' "$CYAN" "$RESET"
+    echo ""
+    printf '    %sDisable with --no-teams to use single-agent subagent mode.%s\n' "$DIM" "$RESET"
+    echo ""
+}
+
+_help_shell() {
+    _help_header
+
+    _help_section "INTERACTIVE SHELL"
+    echo ""
+    printf '    %sAfter Claude finishes, you drop into a bash shell inside the%s\n' "$DIM" "$RESET"
+    printf '    %sfeature worktree. Use these commands to inspect results:%s\n' "$DIM" "$RESET"
+    echo ""
+
+    printf '    %s┌──────────────┬──────────────────────────────────────────┐%s\n' "$CYAN" "$RESET"
+    printf '    %s│%s %sCommand%s      %s│%s %sDescription%s                              %s│%s\n' "$CYAN" "$RESET" "$BOLD" "$RESET" "$CYAN" "$RESET" "$BOLD" "$RESET" "$CYAN" "$RESET"
+    printf '    %s├──────────────┼──────────────────────────────────────────┤%s\n' "$CYAN" "$RESET"
+    printf '    %s│%s %sstatus%s       %s│%s Feature info, artifacts, and commit list   %s│%s\n' "$CYAN" "$RESET" "$GREEN" "$RESET" "$CYAN" "$RESET" "$CYAN" "$RESET"
+    printf '    %s│%s %slog%s          %s│%s View SUMMARY.md in a pager                 %s│%s\n' "$CYAN" "$RESET" "$GREEN" "$RESET" "$CYAN" "$RESET" "$CYAN" "$RESET"
+    printf '    %s│%s %sdiff%s         %s│%s Show git diff from base branch             %s│%s\n' "$CYAN" "$RESET" "$GREEN" "$RESET" "$CYAN" "$RESET" "$CYAN" "$RESET"
+    printf '    %s│%s %smerge-ready%s  %s│%s Check if feature is ready to merge         %s│%s\n' "$CYAN" "$RESET" "$GREEN" "$RESET" "$CYAN" "$RESET" "$CYAN" "$RESET"
+    printf '    %s│%s %sfeatures%s     %s│%s List all features from the manifest        %s│%s\n' "$CYAN" "$RESET" "$GREEN" "$RESET" "$CYAN" "$RESET" "$CYAN" "$RESET"
+    printf '    %s│%s %shelp%s         %s│%s Show available shell commands              %s│%s\n' "$CYAN" "$RESET" "$GREEN" "$RESET" "$CYAN" "$RESET" "$CYAN" "$RESET"
+    printf '    %s│%s %sexit%s         %s│%s Leave the feature shell                    %s│%s\n' "$CYAN" "$RESET" "$GREEN" "$RESET" "$CYAN" "$RESET" "$CYAN" "$RESET"
+    printf '    %s└──────────────┴──────────────────────────────────────────┘%s\n' "$CYAN" "$RESET"
+    echo ""
+
+    _help_section "SHELL ENVIRONMENT"
+    echo ""
+    printf '    %sThese variables are exported in the interactive shell:%s\n' "$DIM" "$RESET"
+    echo ""
+    printf '    %sFEATURE_SLUG%s         The feature slug identifier\n' "$GREEN" "$RESET"
+    printf '    %sFEATURE_WORKTREE%s     Absolute path to the worktree\n' "$GREEN" "$RESET"
+    printf '    %sFEATURE_BASE_BRANCH%s  Branch the feature was forked from\n' "$GREEN" "$RESET"
+    printf '    %sFEATURE_MANIFEST%s     Path to runner-manifest.json\n' "$GREEN" "$RESET"
+    echo ""
+
+    _help_section "MERGE READINESS CHECKS"
+    echo ""
+    printf '    %sThe %smerge-ready%s%s command verifies:%s\n' "$DIM" "$GREEN" "$RESET" "$DIM" "$RESET"
+    echo ""
+    printf '    %s✓%s  Working tree is clean (no uncommitted changes)\n' "$GREEN" "$RESET"
+    printf '    %s✓%s  Feature branch has commits ahead of base\n' "$GREEN" "$RESET"
+    printf '    %s✓%s  TEST-RESULTS.md exists\n' "$GREEN" "$RESET"
+    printf '    %s✓%s  SUMMARY.md exists\n' "$GREEN" "$RESET"
+    echo ""
+}
+
+_help_env() {
+    _help_header
+
+    _help_section "ENVIRONMENT VARIABLES"
+    echo ""
+    printf '    %s┌───────────────────────┬────────────────────────────────────┐%s\n' "$CYAN" "$RESET"
+    printf '    %s│%s %sVariable%s              %s│%s %sEffect%s                             %s│%s\n' "$CYAN" "$RESET" "$BOLD" "$RESET" "$CYAN" "$RESET" "$BOLD" "$RESET" "$CYAN" "$RESET"
+    printf '    %s├───────────────────────┼────────────────────────────────────┤%s\n' "$CYAN" "$RESET"
+    printf '    %s│%s %sNO_COLOR=1%s            %s│%s Disable all colored output           %s│%s\n' "$CYAN" "$RESET" "$GREEN" "$RESET" "$CYAN" "$RESET" "$CYAN" "$RESET"
+    printf '    %s│%s %sRUNNER_NO_COLOR=1%s     %s│%s Disable colors (runner-specific)     %s│%s\n' "$CYAN" "$RESET" "$GREEN" "$RESET" "$CYAN" "$RESET" "$CYAN" "$RESET"
+    printf '    %s│%s %sTERM_PROGRAM%s          %s│%s Used for iTerm2 auto-detection       %s│%s\n' "$CYAN" "$RESET" "$GREEN" "$RESET" "$CYAN" "$RESET" "$CYAN" "$RESET"
+    printf '    %s│%s %sTMUX%s                  %s│%s Used for tmux auto-detection         %s│%s\n' "$CYAN" "$RESET" "$GREEN" "$RESET" "$CYAN" "$RESET" "$CYAN" "$RESET"
+    printf '    %s└───────────────────────┴────────────────────────────────────┘%s\n' "$CYAN" "$RESET"
+    echo ""
+
+    _help_section "FILE STRUCTURE"
+    echo ""
+    printf '    %sAll worktrees and metadata are stored under the worktree parent%s\n' "$DIM" "$RESET"
+    printf '    %sdirectory (default: ~/.feature_runner):%s\n' "$DIM" "$RESET"
+    echo ""
+    printf '    %s~/.feature_runner/%s\n' "$WHITE" "$RESET"
+    printf '    %s├── %srunner-manifest.json%s         %s# Central tracking file%s\n' "$DIM" "$CYAN" "$RESET" "$DIM" "$RESET"
+    printf '    %s├── %slogs/%s                         %s# Background mode only%s\n' "$DIM" "$CYAN" "$RESET" "$DIM" "$RESET"
+    printf '    %s│   ├── add-auth.log%s\n' "$DIM" "$RESET"
+    printf '    %s│   └── build-api.log%s\n' "$DIM" "$RESET"
+    printf '    %s├── %sfeature-add-auth/%s             %s# Full git worktree%s\n' "$DIM" "$CYAN" "$RESET" "$DIM" "$RESET"
+    printf '    %s│   ├── (source files)%s\n' "$DIM" "$RESET"
+    printf '    %s│   ├── .env                       %s# Port-rewritten copy%s\n' "$DIM" "$DIM" "$RESET"
+    printf '    %s│   └── %s.feature-context/%s         %s# Artifacts directory%s\n' "$DIM" "$YELLOW" "$RESET" "$DIM" "$RESET"
+    printf '    %s│       ├── PLAN.md                %s# Architecture plan%s\n' "$DIM" "$DIM" "$RESET"
+    printf '    %s│       ├── SUMMARY.md             %s# Final summary%s\n' "$DIM" "$DIM" "$RESET"
+    printf '    %s│       ├── TEST-RESULTS.md        %s# Test output%s\n' "$DIM" "$DIM" "$RESET"
+    printf '    %s│       ├── INTEGRATION.md         %s# Integration notes%s\n' "$DIM" "$DIM" "$RESET"
+    printf '    %s│       ├── ISSUE.md               %s# GitHub issue context%s\n' "$DIM" "$DIM" "$RESET"
+    printf '    %s│       └── env-ports-modified.log %s# Port rewrite log%s\n' "$DIM" "$DIM" "$RESET"
+    printf '    %s└── feature-build-api/%s\n' "$DIM" "$RESET"
+    printf '    %s    └── ...%s\n' "$DIM" "$RESET"
+    echo ""
+
+    _help_section "PORT REWRITING"
+    echo ""
+    printf '    %sEach feature worktree gets unique ports to avoid conflicts.%s\n' "$DIM" "$RESET"
+    printf '    %sPort rewriting scans .env* files for PORT=<number> patterns:%s\n' "$DIM" "$RESET"
+    echo ""
+    printf '    %sFeature 0%s  keeps original ports     %sPORT=3000 → 3000%s\n' "$BOLD" "$RESET" "$DIM" "$RESET"
+    printf '    %sFeature 1%s  offset = 1 × 10          %sPORT=3000 → 3010%s\n' "$BOLD" "$RESET" "$DIM" "$RESET"
+    printf '    %sFeature 2%s  offset = 2 × 10          %sPORT=3000 → 3020%s\n' "$BOLD" "$RESET" "$DIM" "$RESET"
+    echo ""
+    printf '    %sCustomize with --port-offset <N> or disable with --no-port-rewrite.%s\n' "$DIM" "$RESET"
+
+    _help_section "PREREQUISITES"
+    echo ""
+    printf '    %s┌────────────┬─────────────────────────┬──────────────────┐%s\n' "$CYAN" "$RESET"
+    printf '    %s│%s %sTool%s       %s│%s %sRequired for%s            %s│%s %sInstall%s          %s│%s\n' "$CYAN" "$RESET" "$BOLD" "$RESET" "$CYAN" "$RESET" "$BOLD" "$RESET" "$CYAN" "$RESET" "$BOLD" "$RESET" "$CYAN" "$RESET"
+    printf '    %s├────────────┼─────────────────────────┼──────────────────┤%s\n' "$CYAN" "$RESET"
+    printf '    %s│%s %sgit%s        %s│%s Always                  %s│%s git-scm.com      %s│%s\n' "$CYAN" "$RESET" "$GREEN" "$RESET" "$CYAN" "$RESET" "$CYAN" "$RESET" "$CYAN" "$RESET"
+    printf '    %s│%s %sclaude%s     %s│%s Always                  %s│%s claude.ai/code   %s│%s\n' "$CYAN" "$RESET" "$GREEN" "$RESET" "$CYAN" "$RESET" "$CYAN" "$RESET" "$CYAN" "$RESET"
+    printf '    %s│%s %sjq%s         %s│%s Always                  %s│%s brew install jq   %s│%s\n' "$CYAN" "$RESET" "$GREEN" "$RESET" "$CYAN" "$RESET" "$CYAN" "$RESET" "$CYAN" "$RESET"
+    printf '    %s│%s %sgh%s         %s│%s --issue mode only       %s│%s cli.github.com    %s│%s\n' "$CYAN" "$RESET" "$GREEN" "$RESET" "$CYAN" "$RESET" "$CYAN" "$RESET" "$CYAN" "$RESET"
+    printf '    %s│%s %stmux%s       %s│%s --tabs tmux mode        %s│%s brew install tmux %s│%s\n' "$CYAN" "$RESET" "$GREEN" "$RESET" "$CYAN" "$RESET" "$CYAN" "$RESET" "$CYAN" "$RESET"
+    printf '    %s└────────────┴─────────────────────────┴──────────────────┘%s\n' "$CYAN" "$RESET"
+    echo ""
 }
 
 parse_args() {
@@ -283,7 +609,8 @@ parse_args() {
                 shift
                 ;;
             -h|--help)
-                usage
+                shift
+                usage "${1:-}"
                 ;;
             --version)
                 echo "runner.sh v${VERSION}"
