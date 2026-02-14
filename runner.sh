@@ -1490,32 +1490,6 @@ orchestrate() {
 # Section 9: Claude Prompt & Invocation
 # ─────────────────────────────────────────────────────────────────────────────
 
-build_feature_prompt() {
-    local desc="$1"
-    local slug="$2"
-
-    cat <<PROMPT_EOF
-# Feature: ${desc}
-
-You are implementing a new feature in this codebase.
-
-## Feature Description
-${desc}
-
-## Working Directory
-You are in a dedicated git worktree on branch \`feature/${slug}\`.
-All your changes are isolated — the main branch is untouched.
-
-## Guidelines
-- Explore the codebase to understand structure, patterns, and conventions
-- Write clean, production-quality code matching existing patterns
-- Make atomic commits with descriptive messages
-- Run tests if available to ensure nothing is broken
-- Do NOT push to remote — only local commits
-- Do NOT modify files outside the scope of this feature
-PROMPT_EOF
-}
-
 build_issue_prompt() {
     local desc="$1"
     local slug="$2"
@@ -1675,8 +1649,13 @@ run_claude() (
     printf '    %sWorktree%s    %s\n' "$DIM" "$RESET" "$worktree_dir"
     echo ""
 
-    # Pass prompt as positional argument (not via stdin pipe)
-    claude "${claude_args[@]}" "$prompt"
+    # Issue mode: pass prompt as positional argument
+    # Feature mode: launch bare Claude session (no starting prompt)
+    if [[ -n "$prompt" ]]; then
+        claude "${claude_args[@]}" "$prompt"
+    else
+        claude "${claude_args[@]}"
+    fi
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1809,11 +1788,9 @@ run_worker() {
     # Phase 3: Claude
     _section "Claude Code"
 
-    local prompt
+    local prompt=""
     if [[ "$use_agents" == true ]]; then
         prompt="$(build_issue_prompt "$desc" "$slug" "$issue_number" "$has_issue_context")"
-    else
-        prompt="$(build_feature_prompt "$desc" "$slug")"
     fi
 
     local claude_exit=0
