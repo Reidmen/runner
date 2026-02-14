@@ -1497,7 +1497,33 @@ orchestrate() {
 # Section 9: Claude Prompt & Invocation
 # ─────────────────────────────────────────────────────────────────────────────
 
-build_prompt() {
+build_feature_prompt() {
+    local desc="$1"
+    local slug="$2"
+
+    cat <<PROMPT_EOF
+# Feature: ${desc}
+
+You are implementing a new feature in this codebase.
+
+## Feature Description
+${desc}
+
+## Working Directory
+You are in a dedicated git worktree on branch \`feature/${slug}\`.
+All your changes are isolated — the main branch is untouched.
+
+## Guidelines
+- Explore the codebase to understand structure, patterns, and conventions
+- Write clean, production-quality code matching existing patterns
+- Make atomic commits with descriptive messages
+- Run tests if available to ensure nothing is broken
+- Do NOT push to remote — only local commits
+- Do NOT modify files outside the scope of this feature
+PROMPT_EOF
+}
+
+build_issue_prompt() {
     local desc="$1"
     local slug="$2"
     local issue_number="${3:-}"
@@ -1516,9 +1542,9 @@ and decisions from the team.
     fi
 
     cat <<PROMPT_EOF
-# Feature Implementation: ${desc}
+# Issue Implementation: ${desc}
 
-You are implementing a new feature in this codebase. Work methodically through
+You are implementing a feature from a GitHub issue. Work methodically through
 the phases below. Commit your work after each phase.
 
 ## Feature Description
@@ -1617,6 +1643,7 @@ run_claude() (
     local slug="$1"
     local prompt="$2"
     local worktree_dir="$3"
+    local use_agents="${4:-false}"
 
     cd "$worktree_dir" || fatal "Cannot cd to worktree: ${worktree_dir}"
 
@@ -1632,17 +1659,21 @@ run_claude() (
     [[ ! -t 1 ]] && claude_args+=(--print)
 
     local -a claude_env=()
-    local agent_mode="agent teams"
+    local agent_mode="standalone"
 
-    if [[ "$NO_TEAMS" != true ]]; then
-        # Agent teams mode: experimental env var (like reviewer)
-        claude_env+=("CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1")
-    else
-        # Subagent mode: explicit --agents JSON config
-        agent_mode="subagents"
-        local agents_config
-        agents_config="$(build_subagent_config)"
-        claude_args+=(--agents "$agents_config")
+    # Agents only activate for issue-based tasks
+    if [[ "$use_agents" == true ]]; then
+        if [[ "$NO_TEAMS" != true ]]; then
+            # Agent teams mode: experimental env var (like reviewer)
+            agent_mode="agent teams"
+            claude_env+=("CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1")
+        else
+            # Subagent mode: explicit --agents JSON config
+            agent_mode="subagents"
+            local agents_config
+            agents_config="$(build_subagent_config)"
+            claude_args+=(--agents "$agents_config")
+        fi
     fi
 
     printf '  %s▸%s Launching Claude Code\n' "$CYAN" "$RESET"
@@ -1859,11 +1890,20 @@ run_worker() {
     local issue_number="$_ISSUE_NUMBER"
     local issue_json_path="$_ISSUE_JSON"
 
+    # Determine workflow mode based on input source
+    local use_agents=false
+    local workflow_mode="feature"
+    if [[ -n "$issue_number" ]]; then
+        use_agents=true
+        workflow_mode="issue"
+    fi
+
     _banner "Feature Runner — Worker" "feature/${slug}"
 
     printf '  %sFeature%s  %s\n' "$DIM" "$RESET" "$desc"
     printf '  %sBranch%s   feature/%s\n' "$DIM" "$RESET" "$slug"
     printf '  %sIndex%s    %s\n' "$DIM" "$RESET" "$index"
+    printf '  %sMode%s     %s\n' "$DIM" "$RESET" "$([[ "$workflow_mode" == "issue" ]] && echo "issue (phased workflow)" || echo "feature (standalone)")"
     [[ -n "$issue_number" ]] && printf '  %sIssue%s    #%s\n' "$DIM" "$RESET" "$issue_number"
 
     # Phase 1: Setup
@@ -1900,10 +1940,14 @@ run_worker() {
     _section "Claude Code"
 
     local prompt
-    prompt="$(build_prompt "$desc" "$slug" "$issue_number" "$has_issue_context")"
+    if [[ "$use_agents" == true ]]; then
+        prompt="$(build_issue_prompt "$desc" "$slug" "$issue_number" "$has_issue_context")"
+    else
+        prompt="$(build_feature_prompt "$desc" "$slug")"
+    fi
 
     local claude_exit=0
-    run_claude "$slug" "$prompt" "$WORKTREE_DIR" || claude_exit=$?
+    run_claude "$slug" "$prompt" "$WORKTREE_DIR" "$use_agents" || claude_exit=$?
 
     # Phase 4: Results
     _section "Results"
@@ -1971,7 +2015,8 @@ run_orchestrator() {
     printf '  %sBase branch%s  %s\n' "$DIM" "$RESET" "$RESOLVED_BASE_BRANCH"
     printf '  %sPort offset%s  %s\n' "$DIM" "$RESET" "$PORT_OFFSET"
     printf '  %sWorktree dir%s %s\n' "$DIM" "$RESET" "$WORKTREE_PARENT"
-    printf '  %sAgent mode%s  %s\n' "$DIM" "$RESET" "$([[ "$NO_TEAMS" == true ]] && echo "subagents" || echo "agent teams")"
+    printf '  %sIssue agents%s %s\n' "$DIM" "$RESET" "$([[ "$NO_TEAMS" == true ]] && echo "subagents" || echo "agent teams")"
+    printf '  %sFeature mode%s %s\n' "$DIM" "$RESET" "standalone (no agents)"
 
     # Orchestrate
     orchestrate
