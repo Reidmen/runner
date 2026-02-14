@@ -1610,7 +1610,6 @@ run_claude() (
     local slug="$1"
     local prompt="$2"
     local worktree_dir="$3"
-    local use_agents="${4:-false}"
 
     cd "$worktree_dir" || fatal "Cannot cd to worktree: ${worktree_dir}"
 
@@ -1625,21 +1624,17 @@ run_claude() (
     # Non-interactive print mode when not in a TTY (background mode)
     [[ ! -t 1 ]] && claude_args+=(--print)
 
-    local agent_mode="standalone"
+    local agent_mode="agent teams"
 
-    # Agents only activate for issue-based tasks
-    if [[ "$use_agents" == true ]]; then
-        if [[ "$NO_TEAMS" != true ]]; then
-            # Agent teams mode: export env var so claude inherits it
-            agent_mode="agent teams"
-            export CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
-        else
-            # Subagent mode: explicit --agents JSON config
-            agent_mode="subagents"
-            local agents_config
-            agents_config="$(build_subagent_config)"
-            claude_args+=(--agents "$agents_config")
-        fi
+    if [[ "$NO_TEAMS" != true ]]; then
+        # Agent teams mode: export env var so claude inherits it
+        export CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
+    else
+        # Subagent mode: explicit --agents JSON config
+        agent_mode="subagents"
+        local agents_config
+        agents_config="$(build_subagent_config)"
+        claude_args+=(--agents "$agents_config")
     fi
 
     printf '  %s▸%s Launching Claude Code\n' "$CYAN" "$RESET"
@@ -1739,20 +1734,12 @@ run_worker() {
     local issue_number="$_ISSUE_NUMBER"
     local issue_json_path="$_ISSUE_JSON"
 
-    # Determine workflow mode based on input source
-    local use_agents=false
-    local workflow_mode="feature"
-    if [[ -n "$issue_number" ]]; then
-        use_agents=true
-        workflow_mode="issue"
-    fi
-
     _banner "Feature Runner — Worker" "feature/${slug}"
 
     printf '  %sFeature%s  %s\n' "$DIM" "$RESET" "$desc"
     printf '  %sBranch%s   feature/%s\n' "$DIM" "$RESET" "$slug"
     printf '  %sIndex%s    %s\n' "$DIM" "$RESET" "$index"
-    printf '  %sMode%s     %s\n' "$DIM" "$RESET" "$([[ "$workflow_mode" == "issue" ]] && echo "issue (phased workflow)" || echo "feature (standalone)")"
+    printf '  %sMode%s     %s\n' "$DIM" "$RESET" "$([[ -n "$issue_number" ]] && echo "issue (phased workflow)" || echo "feature (interactive)")"
     [[ -n "$issue_number" ]] && printf '  %sIssue%s    #%s\n' "$DIM" "$RESET" "$issue_number"
 
     # Phase 1: Setup
@@ -1789,12 +1776,12 @@ run_worker() {
     _section "Claude Code"
 
     local prompt=""
-    if [[ "$use_agents" == true ]]; then
+    if [[ -n "$issue_number" ]]; then
         prompt="$(build_issue_prompt "$desc" "$slug" "$issue_number" "$has_issue_context")"
     fi
 
     local claude_exit=0
-    run_claude "$slug" "$prompt" "$WORKTREE_DIR" "$use_agents" || claude_exit=$?
+    run_claude "$slug" "$prompt" "$WORKTREE_DIR" || claude_exit=$?
 
     # Phase 4: Results
     _section "Results"
@@ -1862,8 +1849,7 @@ run_orchestrator() {
     printf '  %sBase branch%s  %s\n' "$DIM" "$RESET" "$RESOLVED_BASE_BRANCH"
     printf '  %sPort offset%s  %s\n' "$DIM" "$RESET" "$PORT_OFFSET"
     printf '  %sWorktree dir%s %s\n' "$DIM" "$RESET" "$WORKTREE_PARENT"
-    printf '  %sIssue agents%s %s\n' "$DIM" "$RESET" "$([[ "$NO_TEAMS" == true ]] && echo "subagents" || echo "agent teams")"
-    printf '  %sFeature mode%s %s\n' "$DIM" "$RESET" "standalone (no agents)"
+    printf '  %sAgent mode%s  %s\n' "$DIM" "$RESET" "$([[ "$NO_TEAMS" == true ]] && echo "subagents" || echo "agent teams")"
 
     # Orchestrate
     orchestrate
