@@ -13,6 +13,11 @@
 
 set -euo pipefail
 
+# Note: Throughout this script, arithmetic increments use ((i++)) || true
+# because under set -e, ((i++)) exits with status 1 when i is 0 (since the
+# old value of i is 0, which bash treats as false). The || true prevents
+# the script from aborting on what is normal loop iteration.
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Section 1: Header, Colors, Logging
 # ─────────────────────────────────────────────────────────────────────────────
@@ -746,7 +751,7 @@ _lookup_issue_num() {
             echo "${_ISSUE_NUM_LIST[$i]}"
             return 0
         fi
-        ((i++))
+        ((i++)) || true
     done
     echo ""
 }
@@ -760,7 +765,7 @@ _lookup_issue_json() {
             echo "${_ISSUE_JSONS[$i]}"
             return 0
         fi
-        ((i++))
+        ((i++)) || true
     done
     echo ""
 }
@@ -1189,7 +1194,7 @@ manifest_show() {
         printf '\n'
         printf '       %s%s%s\n' "$DIM" "$branch" "$RESET"
 
-        ((i++))
+        ((i++)) || true
     done
     echo ""
 }
@@ -1295,7 +1300,7 @@ end tell
 APPLESCRIPT
         fi
 
-        ((i++))
+        ((i++)) || true
         [[ $i -lt ${#cmds[@]} ]] && sleep 0.3
     done
 
@@ -1321,7 +1326,7 @@ spawn_tmux() {
             tmux new-window -t "$session_name" -n "$window_name" "$cmd"
         fi
 
-        ((i++))
+        ((i++)) || true
     done
 
     ok "Created tmux session '${session_name}' with ${#cmds[@]} window(s)"
@@ -1350,7 +1355,7 @@ spawn_background() {
         info "Launching background: ${slugs[$i]} → ${log_file}"
         eval "$cmd" > "$log_file" 2>&1 &
         pids+=($!)
-        ((i++))
+        ((i++)) || true
     done
 
     ok "Launched ${#pids[@]} background feature(s)"
@@ -1384,7 +1389,7 @@ spawn_background() {
             fi
 
             printf '  %s  %-30s\n' "$status_icon" "$slug"
-            ((i++))
+            ((i++)) || true
         done
 
         # Progress bar
@@ -1428,7 +1433,7 @@ orchestrate() {
 
         printf '  %s%d%s  %-40s %s→ feature/%s%s\n' \
             "$BOLD" $((i+1)) "$RESET" "$desc" "$DIM" "$slug" "$RESET"
-        ((i++))
+        ((i++)) || true
     done
     echo ""
 
@@ -1460,7 +1465,7 @@ orchestrate() {
             "${WORKTREE_PARENT}/feature-${slug}" "$i" \
             "$(( i * PORT_OFFSET ))" "$issue_val" "$source"
 
-        ((i++))
+        ((i++)) || true
     done
 
     # Detect terminal and spawn
