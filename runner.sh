@@ -819,6 +819,7 @@ ISSUE_EOF
 GIT_ROOT=""
 RESOLVED_BASE_BRANCH=""
 WORKTREE_DIR=""
+HUB_DIR=""
 LOCKFILE=""
 
 resolve_git_root() {
@@ -863,6 +864,54 @@ release_lock() {
     [[ -n "${LOCKFILE:-}" && -f "${LOCKFILE:-}" ]] && rm -f "$LOCKFILE"
 }
 
+# Create a shallow hub clone of the source repo. All worktrees are created
+# from this hub so they share a single lightweight .git (depth 1, only
+# main + develop). This keeps disk usage low while git worktree add still
+# provides proper parallel-safe working directories.
+ensure_shallow_hub() {
+    HUB_DIR="${WORKTREE_PARENT}/.hub"
+
+    # Already created
+    if [[ -d "$HUB_DIR/.git" ]]; then
+        return 0
+    fi
+
+    # Atomic lock — prevents parallel workers from racing on hub creation
+    local lockfile="${WORKTREE_PARENT}/.hub.lock"
+    while ! mkdir "$lockfile" 2>/dev/null; do
+        sleep 0.2
+    done
+
+    # Re-check after acquiring lock (another worker may have finished first)
+    if [[ -d "$HUB_DIR/.git" ]]; then
+        rmdir "$lockfile" 2>/dev/null
+        return 0
+    fi
+
+    step "Creating shallow hub clone (depth 1)"
+
+    # Clone the base branch at depth 1. file:// is required because
+    # --depth needs the pack transport (local hardlink mode doesn't support it).
+    git clone --depth 1 --single-branch --branch "$RESOLVED_BASE_BRANCH" \
+        "file://${GIT_ROOT}" "$HUB_DIR" \
+        || { rmdir "$lockfile" 2>/dev/null; fatal "Failed to create shallow hub clone"; }
+
+    # Also fetch develop at depth 1 if it exists and wasn't the base
+    if [[ "$RESOLVED_BASE_BRANCH" != "develop" ]] && \
+       git -C "$GIT_ROOT" rev-parse --verify "develop" &>/dev/null; then
+        git -C "$HUB_DIR" fetch --depth 1 origin develop:develop 2>/dev/null || true
+    fi
+
+    # Also fetch main at depth 1 if it wasn't the base
+    if [[ "$RESOLVED_BASE_BRANCH" != "main" ]] && \
+       git -C "$GIT_ROOT" rev-parse --verify "main" &>/dev/null; then
+        git -C "$HUB_DIR" fetch --depth 1 origin main:main 2>/dev/null || true
+    fi
+
+    rmdir "$lockfile" 2>/dev/null
+    ok "Shallow hub ready: ${HUB_DIR}"
+}
+
 create_worktree() {
     local slug="$1"
     local feature_branch="feature/${slug}"
@@ -885,17 +934,21 @@ create_worktree() {
         return 0
     fi
 
+    # Ensure the shallow hub exists before creating worktrees from it
+    ensure_shallow_hub
+
     step "Creating worktree: ${WORKTREE_DIR}"
     step "Branch: ${feature_branch} (from ${RESOLVED_BASE_BRANCH})"
 
-    # Check if branch already exists
-    if git -C "$GIT_ROOT" rev-parse --verify "$feature_branch" &>/dev/null; then
+    # Create a git worktree from the shallow hub. Each worktree shares the
+    # hub's lightweight .git (depth 1) and can operate in parallel safely.
+    if git -C "$HUB_DIR" rev-parse --verify "$feature_branch" &>/dev/null; then
         # Branch exists — create worktree without -b
-        git -C "$GIT_ROOT" worktree add "$WORKTREE_DIR" "$feature_branch" \
+        git -C "$HUB_DIR" worktree add "$WORKTREE_DIR" "$feature_branch" \
             || fatal "Failed to create worktree for existing branch '${feature_branch}'"
     else
         # Create new branch from base
-        git -C "$GIT_ROOT" worktree add -b "$feature_branch" "$WORKTREE_DIR" "$RESOLVED_BASE_BRANCH" \
+        git -C "$HUB_DIR" worktree add -b "$feature_branch" "$WORKTREE_DIR" "$RESOLVED_BASE_BRANCH" \
             || fatal "Failed to create worktree: ${WORKTREE_DIR}"
     fi
 
@@ -906,18 +959,20 @@ cleanup_worktree() {
     local slug="$1"
     local feature_branch="feature/${slug}"
     local wt_dir="${WORKTREE_PARENT}/feature-${slug}"
+    local hub_dir="${WORKTREE_PARENT}/.hub"
 
     if [[ -d "$wt_dir" ]]; then
         step "Removing worktree: ${wt_dir}"
-        git -C "$GIT_ROOT" worktree remove --force "$wt_dir" 2>/dev/null || rm -rf "$wt_dir"
+        git -C "$hub_dir" worktree remove --force "$wt_dir" 2>/dev/null || rm -rf "$wt_dir"
     fi
 
-    # Remove branch if no commits ahead of base
-    if git -C "$GIT_ROOT" rev-parse --verify "$feature_branch" &>/dev/null; then
+    # Remove branch from hub if no commits ahead of base
+    if [[ -d "$hub_dir" ]] && \
+       git -C "$hub_dir" rev-parse --verify "$feature_branch" &>/dev/null; then
         local ahead
-        ahead="$(git -C "$GIT_ROOT" rev-list "${RESOLVED_BASE_BRANCH}..${feature_branch}" --count 2>/dev/null || echo "0")"
+        ahead="$(git -C "$hub_dir" rev-list "${RESOLVED_BASE_BRANCH}..${feature_branch}" --count 2>/dev/null || echo "0")"
         if [[ "$ahead" -eq 0 ]]; then
-            git -C "$GIT_ROOT" branch -d "$feature_branch" 2>/dev/null || true
+            git -C "$hub_dir" branch -d "$feature_branch" 2>/dev/null || true
             info "Removed empty branch: ${feature_branch}"
         else
             warn "Keeping branch ${feature_branch} (${ahead} commits ahead)"

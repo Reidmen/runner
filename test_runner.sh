@@ -70,15 +70,18 @@ _test_setup() {
 
 _test_teardown() {
     if [[ -n "${TEST_TMPDIR:-}" && -d "${TEST_TMPDIR:-}" ]]; then
-        # Clean up any worktrees first to avoid git complaints
-        (
-            cd "${TEST_REPO}" 2>/dev/null && \
-            git worktree list --porcelain 2>/dev/null | grep "^worktree " | \
-            while read -r _ wt_path; do
-                [[ "$wt_path" == "$TEST_REPO" ]] && continue
-                git worktree remove --force "$wt_path" 2>/dev/null || true
-            done
-        ) 2>/dev/null || true
+        # Clean up worktrees from the shallow hub to avoid git complaints
+        local hub_dir="${TEST_WORKTREE_DIR}/.hub"
+        if [[ -d "$hub_dir" ]]; then
+            (
+                cd "$hub_dir" 2>/dev/null && \
+                git worktree list --porcelain 2>/dev/null | grep "^worktree " | \
+                while read -r _ wt_path; do
+                    [[ "$wt_path" == "$hub_dir" ]] && continue
+                    git worktree remove --force "$wt_path" 2>/dev/null || true
+                done
+            ) 2>/dev/null || true
+        fi
         rm -rf "$TEST_TMPDIR"
     fi
 }
@@ -1037,9 +1040,9 @@ test_build_prompt_basic() {
     local result
     result="$(bash -c "
         source '${TEST_TMPDIR}/runner_testable.sh'
-        build_prompt 'Add user authentication' 'add-user-auth' '' false
+        build_issue_prompt 'Add user authentication' 'add-user-auth' '' false
     ")"
-    assert_contains "$result" "Feature Implementation: Add user authentication" "prompt title"
+    assert_contains "$result" "Issue Implementation: Add user authentication" "prompt title"
     assert_contains "$result" "feature/add-user-auth" "branch in prompt"
     assert_contains "$result" "Phase 1: Architecture" "phase 1"
     assert_contains "$result" "Phase 2: Implementation" "phase 2"
@@ -1055,7 +1058,7 @@ test_build_prompt_with_issue() {
     local result
     result="$(bash -c "
         source '${TEST_TMPDIR}/runner_testable.sh'
-        build_prompt 'Fix authentication bug' 'issue-42-fix-auth' '42' true
+        build_issue_prompt 'Fix authentication bug' 'issue-42-fix-auth' '42' true
     ")"
     assert_contains "$result" "Issue Context" "issue context section"
     assert_contains "$result" "Issue #42" "issue number"
@@ -1067,7 +1070,7 @@ test_build_prompt_without_issue() {
     local result
     result="$(bash -c "
         source '${TEST_TMPDIR}/runner_testable.sh'
-        build_prompt 'Add search' 'add-search' '' false
+        build_issue_prompt 'Add search' 'add-search' '' false
     ")"
     assert_not_contains "$result" "Issue Context" "no issue context section"
 }
@@ -1077,7 +1080,7 @@ test_build_team_config_valid_json() {
     local result
     result="$(bash -c "
         source '${TEST_TMPDIR}/runner_testable.sh'
-        build_team_config
+        build_subagent_config
     ")"
 
     # Validate it's valid JSON
@@ -1090,9 +1093,9 @@ test_build_team_config_valid_json() {
     count="$(echo "$result" | jq 'length')"
     assert_eq "4" "$count" "4 agents defined"
 
-    # Check agent names
+    # Check agent names (keys of the JSON object)
     local names
-    names="$(echo "$result" | jq -r '.[].name' | sort | tr '\n' ',')"
+    names="$(echo "$result" | jq -r 'keys[]' | sort | tr '\n' ',')"
     assert_contains "$names" "architect" "architect agent"
     assert_contains "$names" "implementer" "implementer agent"
     assert_contains "$names" "integrator" "integrator agent"
@@ -1354,9 +1357,10 @@ test_e2e_worktree_lifecycle() {
         return 1
     fi
 
-    # Branch should still exist (has commits)
+    # Branch should still exist in the hub (has commits)
+    local hub_dir="${TEST_WORKTREE_DIR}/.hub"
     local branch_exists=0
-    git -C "$TEST_REPO" rev-parse --verify "feature/lifecycle-test" &>/dev/null || branch_exists=1
+    git -C "$hub_dir" rev-parse --verify "feature/lifecycle-test" &>/dev/null || branch_exists=1
     assert_exit_code "0" "$branch_exists" "branch kept (has commits)"
 }
 
@@ -1385,9 +1389,10 @@ test_e2e_worktree_cleanup_empty_branch() {
         cleanup_worktree 'empty-branch-test'
     " 2>&1
 
-    # Empty branch should be deleted
+    # Empty branch should be deleted from the hub
+    local hub_dir="${TEST_WORKTREE_DIR}/.hub"
     local branch_exists=0
-    git -C "$TEST_REPO" rev-parse --verify "feature/empty-branch-test" &>/dev/null || branch_exists=1
+    git -C "$hub_dir" rev-parse --verify "feature/empty-branch-test" &>/dev/null || branch_exists=1
     assert_exit_code "1" "$branch_exists" "empty branch removed"
 }
 
