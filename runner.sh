@@ -35,27 +35,32 @@ _use_color() {
     return 1
 }
 
-if _use_color; then
-    RED=$'\033[0;31m'
-    GREEN=$'\033[0;32m'
-    YELLOW=$'\033[0;33m'
-    BLUE=$'\033[0;34m'
-    CYAN=$'\033[0;36m'
-    WHITE=$'\033[1;37m'
-    BOLD=$'\033[1m'
-    DIM=$'\033[2m'
-    RESET=$'\033[0m'
-    # Background colors for badges
-    BG_GREEN=$'\033[42m'
-    BG_RED=$'\033[41m'
-    BG_BLUE=$'\033[44m'
-    BG_YELLOW=$'\033[43m'
-    BG_BLACK=$'\033[40m'
-else
-    RED="" GREEN="" YELLOW="" BLUE="" CYAN="" WHITE=""
-    BOLD="" DIM="" RESET=""
-    BG_GREEN="" BG_RED="" BG_BLUE="" BG_YELLOW="" BG_BLACK=""
-fi
+_init_colors() {
+    if _use_color; then
+        RED=$'\033[0;31m'
+        GREEN=$'\033[0;32m'
+        YELLOW=$'\033[0;33m'
+        BLUE=$'\033[0;34m'
+        CYAN=$'\033[0;36m'
+        WHITE=$'\033[1;37m'
+        BOLD=$'\033[1m'
+        DIM=$'\033[2m'
+        RESET=$'\033[0m'
+        # Background colors for badges
+        BG_GREEN=$'\033[42m'
+        BG_RED=$'\033[41m'
+        BG_BLUE=$'\033[44m'
+        BG_YELLOW=$'\033[43m'
+        BG_BLACK=$'\033[40m'
+    else
+        RED="" GREEN="" YELLOW="" BLUE="" CYAN="" WHITE=""
+        BOLD="" DIM="" RESET=""
+        BG_GREEN="" BG_RED="" BG_BLUE="" BG_YELLOW="" BG_BLACK=""
+    fi
+}
+
+# Initialize colors (re-initialized after parse_args so --no-color works)
+_init_colors
 
 # Logging with visual icons
 info()  { printf '  %s%s%s %s\n' "$BLUE"   "ℹ" "$RESET" "$*"; }
@@ -108,14 +113,12 @@ _badge() {
     printf '%s%s %s %s' "$bg" "$WHITE" "$label" "$RESET"
 }
 
-# Elapsed time tracker
+# Elapsed time tracker (uses bash builtin $SECONDS — no forks)
 _TIMER_START=""
-_timer_start() { _TIMER_START="$(date +%s)"; }
+_timer_start() { _TIMER_START=$SECONDS; }
 _timer_elapsed() {
     [[ -z "$_TIMER_START" ]] && echo "0s" && return
-    local now elapsed
-    now="$(date +%s)"
-    elapsed=$(( now - _TIMER_START ))
+    local elapsed=$(( SECONDS - _TIMER_START ))
     if [[ $elapsed -lt 60 ]]; then
         echo "${elapsed}s"
     else
@@ -123,7 +126,9 @@ _timer_elapsed() {
     fi
 }
 
-# Progress indicator for multi-step operations
+# Progress indicator for multi-step operations (no forks)
+readonly _FULL_BAR="████████████████████"
+readonly _EMPTY_BAR="░░░░░░░░░░░░░░░░░░░░"
 _progress() {
     local current="$1"
     local total="$2"
@@ -131,9 +136,7 @@ _progress() {
     local pct=$(( current * 100 / total ))
     local filled=$(( pct / 5 ))
     local empty=$(( 20 - filled ))
-    local bar=""
-    [[ $filled -gt 0 ]] && bar+="$(printf '%0.s█' $(seq 1 "$filled"))"
-    [[ $empty -gt 0 ]]  && bar+="$(printf '%0.s░' $(seq 1 "$empty"))"
+    local bar="${_FULL_BAR:0:$filled}${_EMPTY_BAR:0:$empty}"
     printf '  %s[%s/%s]%s %s %s%s%s %s%d%%%s\n' \
         "$DIM" "$current" "$total" "$RESET" \
         "$bar" "$BOLD" "$label" "$RESET" \
@@ -649,6 +652,11 @@ parse_args() {
                 ;;
         esac
     done
+
+    # Validate numeric inputs (prevents bash arithmetic injection)
+    [[ "$MAX_TURNS" =~ ^[0-9]+$ ]] || fatal "--max-turns must be a positive integer, got: $MAX_TURNS"
+    [[ "$PORT_OFFSET" =~ ^[0-9]+$ ]] || fatal "--port-offset must be a positive integer, got: $PORT_OFFSET"
+    [[ -z "$_FEATURE_INDEX" || "$_FEATURE_INDEX" =~ ^[0-9]+$ ]] || fatal "Invalid feature index: $_FEATURE_INDEX"
 }
 
 read_features_from_file() {
@@ -658,7 +666,10 @@ read_features_from_file() {
     while IFS= read -r line; do
         # Skip empty lines and comments
         line="${line%%#*}"
-        line="$(echo "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+        # Trim leading whitespace (pure bash)
+        line="${line#"${line%%[![:space:]]*}"}"
+        # Trim trailing whitespace (pure bash)
+        line="${line%"${line##*[![:space:]]}"}"
         [[ -z "$line" ]] && continue
         FEATURES+=("$line")
     done < "$file"
@@ -672,17 +683,8 @@ slugify() {
     local input="$1"
     local slug
 
-    # Lowercase
-    slug="$(echo "$input" | tr '[:upper:]' '[:lower:]')"
-    # Replace non-alphanumeric with hyphens (requires sed for char class)
-    # shellcheck disable=SC2001
-    slug="$(echo "$slug" | sed 's/[^a-z0-9]/-/g')"
-    # Collapse multiple hyphens (requires sed for quantifier)
-    # shellcheck disable=SC2001
-    slug="$(echo "$slug" | sed 's/-\{2,\}/-/g')"
-    # Trim leading/trailing hyphens
-    slug="${slug#-}"
-    slug="${slug%-}"
+    # Lowercase, replace non-alnum, collapse hyphens in a single pipeline
+    slug="$(printf '%s' "$input" | tr '[:upper:]' '[:lower:]' | sed -e 's/[^a-z0-9]/-/g' -e 's/-\{2,\}/-/g' -e 's/^-//' -e 's/-$//')"
     # Truncate to 50 chars
     slug="${slug:0:50}"
     # Trim trailing hyphen after truncation
@@ -692,10 +694,9 @@ slugify() {
 }
 
 validate_slugs_unique() {
-    local slugs=("$@")
     local seen=""
-    for s in "${slugs[@]}"; do
-        # Use newline-delimited list for O(n) dedup without associative arrays
+    for s in "$@"; do
+        # Use newline-delimited list for dedup (bash 3.2 compatible)
         if echo "$seen" | grep -qxF "$s"; then
             fatal "Duplicate feature slug: '$s' — feature descriptions must produce unique slugs"
         fi
@@ -1042,14 +1043,14 @@ rewrite_ports() {
                 local var_name="${BASH_REMATCH[1]}"
                 local old_port="${BASH_REMATCH[2]}"
                 local new_port=$(( old_port + total_offset ))
-                printf '%s=%s\n' "$var_name" "$new_port" >> "$tmpfile"
+                printf '%s=%s\n' "$var_name" "$new_port"
                 printf '%s: %s %s → %s\n' "$relpath" "$var_name" "$old_port" "$new_port" >> "$log_file"
                 file_modified=true
                 ((modified++)) || true
             else
-                printf '%s\n' "$line" >> "$tmpfile"
+                printf '%s\n' "$line"
             fi
-        done < "$envfile"
+        done < "$envfile" > "$tmpfile"
 
         if [[ "$file_modified" == true ]]; then
             mv "$tmpfile" "$envfile"
@@ -1169,18 +1170,8 @@ manifest_show() {
 
     _section "Manifest"
 
-    local count
-    count="$(jq '.features | length' "$MANIFEST_FILE")"
-
-    local i=0
-    while [[ $i -lt $count ]]; do
-        local slug status desc branch issue_num
-        slug="$(jq -r ".features[$i].slug" "$MANIFEST_FILE")"
-        status="$(jq -r ".features[$i].status" "$MANIFEST_FILE")"
-        desc="$(jq -r ".features[$i].description" "$MANIFEST_FILE")"
-        branch="$(jq -r ".features[$i].branch" "$MANIFEST_FILE")"
-        issue_num="$(jq -r ".features[$i].issue_number // \"\"" "$MANIFEST_FILE")"
-
+    # Single jq call — outputs tab-delimited rows instead of 5N separate calls
+    while IFS=$'\t' read -r slug status desc branch issue_num; do
         local badge_text badge_bg
         case "$status" in
             running)   badge_text="RUN"; badge_bg="$BG_YELLOW" ;;
@@ -1189,13 +1180,11 @@ manifest_show() {
             *)         badge_text=" - "; badge_bg="$BG_BLACK" ;;
         esac
 
-        printf '  %s  %s%-22s%s %s' "$(_badge "$badge_text" "$badge_bg")" "$BOLD" "$slug" "$RESET" "$desc"
+        printf '  %s%s %s %s  %s%-22s%s %s' "$badge_bg" "$WHITE" "$badge_text" "$RESET" "$BOLD" "$slug" "$RESET" "$desc"
         [[ -n "$issue_num" && "$issue_num" != "null" ]] && printf '  %s#%s%s' "$DIM" "$issue_num" "$RESET"
         printf '\n'
         printf '       %s%s%s\n' "$DIM" "$branch" "$RESET"
-
-        ((i++)) || true
-    done
+    done < <(jq -r '.features[] | [.slug, .status, .description, .branch, (.issue_number // "")] | @tsv' "$MANIFEST_FILE")
     echo ""
 }
 
@@ -1215,8 +1204,8 @@ detect_terminal() {
         return
     fi
 
-    # Detect tmux
-    if [[ -n "${TMUX:-}" ]] || command -v tmux &>/dev/null; then
+    # Detect tmux (only when inside an active tmux session)
+    if [[ -n "${TMUX:-}" ]]; then
         echo "tmux"
         return
     fi
@@ -1866,6 +1855,8 @@ run_orchestrator() {
 
 main() {
     parse_args "$@"
+    # Re-initialize colors after args so --no-color takes effect
+    _init_colors
 
     if [[ "$_SINGLE" == true ]]; then
         run_worker

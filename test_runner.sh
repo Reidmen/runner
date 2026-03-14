@@ -93,6 +93,8 @@ _source_runner_functions() {
         -e 's/^readonly SCRIPT_NAME=.*/SCRIPT_NAME="runner.sh"/' \
         -e 's/^readonly SCRIPT_PATH=.*/SCRIPT_PATH="\/dev\/null"/' \
         -e 's/^readonly ENV_MAX_SIZE=.*/ENV_MAX_SIZE=$((5 * 1024 * 1024))/' \
+        -e 's/^readonly _FULL_BAR=.*/_FULL_BAR="████████████████████"/' \
+        -e 's/^readonly _EMPTY_BAR=.*/_EMPTY_BAR="░░░░░░░░░░░░░░░░░░░░"/' \
         "$TEST_SCRIPT" > "${TEST_TMPDIR}/runner_lib.sh"
     # Pre-set required variables to avoid unbound variable errors
     cat > "${TEST_TMPDIR}/source_helper.sh" <<'HELPER'
@@ -1037,9 +1039,9 @@ test_build_prompt_basic() {
     local result
     result="$(bash -c "
         source '${TEST_TMPDIR}/runner_testable.sh'
-        build_prompt 'Add user authentication' 'add-user-auth' '' false
+        build_issue_prompt 'Add user authentication' 'add-user-auth' '' false
     ")"
-    assert_contains "$result" "Feature Implementation: Add user authentication" "prompt title"
+    assert_contains "$result" "Issue Implementation: Add user authentication" "prompt title"
     assert_contains "$result" "feature/add-user-auth" "branch in prompt"
     assert_contains "$result" "Phase 1: Architecture" "phase 1"
     assert_contains "$result" "Phase 2: Implementation" "phase 2"
@@ -1055,7 +1057,7 @@ test_build_prompt_with_issue() {
     local result
     result="$(bash -c "
         source '${TEST_TMPDIR}/runner_testable.sh'
-        build_prompt 'Fix authentication bug' 'issue-42-fix-auth' '42' true
+        build_issue_prompt 'Fix authentication bug' 'issue-42-fix-auth' '42' true
     ")"
     assert_contains "$result" "Issue Context" "issue context section"
     assert_contains "$result" "Issue #42" "issue number"
@@ -1067,7 +1069,7 @@ test_build_prompt_without_issue() {
     local result
     result="$(bash -c "
         source '${TEST_TMPDIR}/runner_testable.sh'
-        build_prompt 'Add search' 'add-search' '' false
+        build_issue_prompt 'Add search' 'add-search' '' false
     ")"
     assert_not_contains "$result" "Issue Context" "no issue context section"
 }
@@ -1077,7 +1079,7 @@ test_build_team_config_valid_json() {
     local result
     result="$(bash -c "
         source '${TEST_TMPDIR}/runner_testable.sh'
-        build_team_config
+        build_subagent_config
     ")"
 
     # Validate it's valid JSON
@@ -1085,14 +1087,14 @@ test_build_team_config_valid_json() {
     local exit_code=$?
     assert_exit_code "0" "$exit_code" "team config is valid JSON"
 
-    # Check all 4 agents exist
+    # Check all 4 agents exist (JSON object with 4 keys)
     local count
-    count="$(echo "$result" | jq 'length')"
+    count="$(echo "$result" | jq 'keys | length')"
     assert_eq "4" "$count" "4 agents defined"
 
-    # Check agent names
+    # Check agent names (keys of the JSON object)
     local names
-    names="$(echo "$result" | jq -r '.[].name' | sort | tr '\n' ',')"
+    names="$(echo "$result" | jq -r 'keys[]' | sort | tr '\n' ',')"
     assert_contains "$names" "architect" "architect agent"
     assert_contains "$names" "implementer" "implementer agent"
     assert_contains "$names" "integrator" "integrator agent"
